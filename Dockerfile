@@ -7,7 +7,11 @@ RUN R -e "BiocManager::install('illuminaHumanv4.db')"
 RUN R -e "BiocManager::install('limma')"
 RUN R -e "BiocManager::install('oligo')"
 RUN R -e "BiocManager::install('readr')"
+RUN R -e "BiocManager::install('GEOquery')"
+RUN R -e "BiocManager::install('illuminaio')"
 
+ADD GPL10558.tsv /
+ADD retrieveFromGEO.R /
 ADD normalizeBeadChip.R /
 
 WORKDIR /

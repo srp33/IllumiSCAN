@@ -325,7 +325,7 @@ read_and_filter_tsv <- function(file_path) {
   writeLines(filtered_lines, file_path)
   
   # Read the filtered file
-  return(read_tsv(file_path))
+  return(suppressMessages(read_tsv(file_path, progress = FALSE)))
 }
 
 gseID <- commandArgs()[9]

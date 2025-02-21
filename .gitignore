@@ -49,4 +49,6 @@ po/*~
 rsconnect/
 
 tmp
-Output
+Figures
+*.tsv
+.DS_Store
