@@ -7,13 +7,18 @@ numCores=3
 
 docker build --rm -t $imageName -f Dockerfile .
 
+#docker run --rm -i -t \
+docker run --rm \
+  -v $(pwd):/app \
+  $imageName \
+  Rscript --vanilla Dunning_SpikeIn_Analysis.R
+
+exit
 docker run --rm -i -t \
   -v $(pwd)/tmp:/tmp \
   -v $(pwd)/Output:/Output \
   $imageName \
   Rscript --vanilla retrieveFromGEO.R   
-exit
-
 
 #TODO: Download all of GEO for the Illumina BeadChip platforms and check these?
 function normalize {

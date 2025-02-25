@@ -467,17 +467,13 @@ calcConsistencyMetric <- function(evalData)
   return(summary(evalFit)$r.squared)
 }
 
-# convThresholdOptions <- c(10)
-# intervalNOptions <- c(1000)
-# binsizeOptions <- c(50)
-
 convThresholdOptions <- c(0.01, 0.1, 1, 10)
 intervalNOptions <- c(1000, 10000, 20000, 50000)
 binsizeOptions <- c(50, 500, 5000)
 
 #TODO: Plot the summarized results? Or just examine it as a table?
 
-numCores = 4
+numCores = 20
 verbose = FALSE
 
 paramCombos <- expand.grid(convThresholdOptions, intervalNOptions, binsizeOptions)
