@@ -187,6 +187,7 @@ targetData <- distinct(targetData)
 dir.create("Figures", showWarnings = FALSE, recursive = TRUE)
 
 comparisonResults <- NULL
+paramTuningOutFilePath <- "Param_Tuning_Results.tsv"
 
 #####################################################################
 # Save and plot the non-normalized data and detection p-values
@@ -236,8 +237,6 @@ verbose = FALSE
 
 paramCombos <- expand.grid(convThresholdOptions, intervalNOptions, binsizeOptions)
 colnames(paramCombos) <- c("convThreshold", "intervalN", "binsize")
-
-paramTuningOutFilePath <- "Param_Tuning_Results.tsv"
 
 if (!file.exists(paramTuningOutFilePath))
 {
