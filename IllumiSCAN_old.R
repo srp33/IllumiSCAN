@@ -1,11 +1,5 @@
-library(limma)
-library(oligo)
-library(doParallel)
-library(readr)
-
-#TODO: source("IllumiSCAN.R")
-
-scanNorm <- function(signalExprData, signalProbeSequences, controlExprData=NULL, signalPValueData=NULL, convThreshold=1, intervalN=50000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
+scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL, controlExprData=NULL, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
+scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL, controlExprData=NULL, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
 {
   #############################################
   # Check parameters
@@ -52,9 +46,11 @@ scanNorm <- function(signalExprData, signalProbeSequences, controlExprData=NULL,
 
         exprData <- nec(x = doLog2(combinedExprData), status = status)
         exprData <- exprData[1:nrow(signalExprData),,drop=FALSE]
+
+##      exprData <- doLog2(rbind(signalExprData, controlExprData))
     }
   }
-  
+
   #############################################
   # Normalize
   #############################################
@@ -71,13 +67,13 @@ scanNorm <- function(signalExprData, signalProbeSequences, controlExprData=NULL,
   
   if (numSamples == 1)
   {
-    normData <- as.matrix(scanNormVector(colnames(exprData)[1], exprData[,1], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose))
+    normData <- as.matrix(scanNormVector(exprData[,1], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose))
   }
   else
   {
-    normData <- foreach(i = 1:ncol(exprData), .combine = cbind, .export=c("scanNormVector", "getSampleIndices", "EM_vMix", "mybeta", "assign_bin", "vsig", "vresp", "dn", "vbeta", "sig")) %dopar%
+    normData <- foreach(i = 1:ncol(exprData), .combine = cbind, .export=c("scanNormVector", "sampleProbeIndices", "EM_vMix", "mybeta", "assign_bin", "vsig", "vresp", "dn", "vbeta", "sig")) %dopar%
     {
-      scanNormVector(colnames(exprData)[i], exprData[,i], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
+      scanNormVector(exprData[,i], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
     }
   }
 
@@ -86,23 +82,22 @@ scanNorm <- function(signalExprData, signalProbeSequences, controlExprData=NULL,
   
   rownames(normData) <- rownames(exprData)
   colnames(normData) <- colnames(exprData)
-
-  #normData <- normData[1:nrow(signalExprData),,drop=FALSE]
   
+  ##########################
+  normData <- normData[rownames(signalExprData),,drop=FALSE]
+
   return(normData)
 }
 
-scanNormVector <- function(description, my, mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
+scanNormVector <- function(my, mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
 {
-  message(paste("Processing ", description, sep=""))
-
-  # Add some tiny random noise
+  # Add a tiny amount of random noise
   set.seed(0)
   noise = rnorm(length(my)) / 10000000
   my = my + noise
 
   nGroups = floor(length(my) / binsize)
-  samplingProbeIndices = getSampleIndices(total=length(my), intervalN=intervalN, verbose=verbose)
+  samplingProbeIndices = sampleProbeIndices(total=length(my), intervalN=intervalN, verbose=verbose)
 
   mixResult = EM_vMix(y=my[samplingProbeIndices], X=mx[samplingProbeIndices,], nbins=nbins, convThreshold=convThreshold, maxIt=maxIt, verbose=verbose)
 
@@ -150,13 +145,15 @@ buildDesignMatrix = function(seqs, verbose=TRUE)
   numG = apply(mx[,which(grepl("^G_", colnames(mx)))], 1, sum)
   numT = 60 - (numA + numC + numG)
 
-  mx = cbind(numT, mx, as.integer(numA^2), as.integer(numC^2), as.integer(numG^2), as.integer(numT^2))
-  mx = apply(mx, 2, as.integer)
+  mx = cbind(numT, mx, numA^2, numC^2, numG^2, numT^2)
+  #mx = cbind(numA, numC, numG, numA^2, numC^2, numG^2, numT^2)
+  #mx = cbind(numA, numC, numG)
+  mx = apply(mx, 2, as.integer)  
 
   return(mx)
 }
 
-getSampleIndices = function(total, intervalN, verbose=TRUE)
+sampleProbeIndices = function(total, intervalN, verbose=TRUE)
 {
   interval = floor(total / intervalN)
   if (interval <= 1)
@@ -309,137 +306,3 @@ sig = function(y, m, verbose=TRUE)
   resid = y - m
   sqrt((resid %*% resid) / length(y))
 }
-
-read_and_filter_tsv <- function(file_path) {
-  # Read the file line by line
-  con = gzfile(file_path, "rt")
-  lines = readLines(con)
-  close(con)
-
-  # Filter out lines that are comments or contain only tabs
-  #filtered_lines = lines[!grepl('^#|^\t|^"*$', lines)]
-  filtered_lines = lines[grepl('^[A-Z]', lines)]
-  print("a")
-  print(filtered_lines[1])
-  print("b")
-  
-  # Write the filtered lines back to the file
-  writeLines(filtered_lines, file_path)
-  
-  # Read the filtered file
-  return(suppressMessages(read_tsv(file_path, progress = FALSE)))
-}
-
-gseID <- commandArgs()[9]
-probeIDColumn <- commandArgs()[10]
-exprColumnPattern <- commandArgs()[11]
-detectionPValueColumnPattern <- commandArgs()[12]
-platform <- commandArgs()[13]
-numCores <- as.integer(commandArgs()[14])
-url <- commandArgs()[15]
-
-library(paste(platform, ".db", sep=""), character.only=TRUE)
-
-#tmpDir <- tempdir()
-tmpDir <- "/tmp"
-tmpFile <- paste(tmpDir, "/", gseID, ".txt", sep="")
-tmpFileGz <- paste(tmpFile, ".gz", sep="")
-
-if (!file.exists(tmpFileGz))
-  download.file(url, tmpFileGz)
-
-message("Reading data file...")
-data = read_and_filter_tsv(tmpFileGz)
-
-# Read the data file
-#data = read_tsv(tmpFileGz, comment=c("#"))
-#suppressWarnings(data <- fread(paste0("zcat < ", tmpFileGz), stringsAsFactors=FALSE, sep="\t", skip=4, data.table=FALSE, check.names=FALSE, fill=TRUE, na.strings="", showProgress=FALSE))
-print(head(data))
-stop()
-
-# Check input paramters and parse out data we need
-if (probeIDColumn == "")
-  probeIDColumn <- "PROBE_ID"
-
-if (!(probeIDColumn %in% colnames(data)))
-{
-  stop(paste0("No ", probeIDColumn, " column in the data file."))
-}
-
-probeIDs <- data[,probeIDColumn]
-
-if (exprColumnPattern == "")
-  exprColumnPattern = ".AVG_Signal"
-exprColumns <- grep(exprColumnPattern, colnames(data), ignore.case=TRUE)
-
-if (length(exprColumns) == 0)
-  stop(paste0("No columns match this pattern: ", exprColumnPattern))
-
-exprData <- as.matrix(data[,exprColumns,drop=FALSE])
-rownames(exprData) <- probeIDs
-
-if (detectionPValueColumnPattern == "")
-  detectionPValueColumnPattern <- "Detection Pval"
-pValueColumns <- grep(detectionPValueColumnPattern, colnames(data), ignore.case=TRUE)
-
-if (length(pValueColumns) == 0)
-  stop(paste0("No columns match this pattern: ", detectionPValueColumnPattern))
-
-if (length(exprColumns) != length(pValueColumns))
-  stop(paste0("The number of expression columns [", length(exprColumns), "] did not match the number of p-value columns [", length(pValueColumns), "]."))
-
-pValueData <- as.matrix(data[,pValueColumns,drop=FALSE])
-rownames(pValueData) <- probeIDs
-
-# Extract platform-specific data
-if (platform == "illuminaHumanv2") {
-  probeSequenceRef <- illuminaHumanv2PROBESEQUENCE
-  probeQualityRef <- illuminaHumanv2PROBEQUALITY
-  #probeReporterRef <- illuminaHumanv2REPORTERGROUPID # This indicates control probe info
-  probeGeneRef <- illuminaHumanv2ENSEMBLREANNOTATED
-} else {
-  probeSequenceRef <- illuminaHumanv4PROBESEQUENCE
-  probeQualityRef <- illuminaHumanv4PROBEQUALITY
-  #probeReporterRef <- illuminaHumanv4REPORTERGROUPID # This indicates control probe info
-  probeGeneRef <- illuminaHumanv4ENSEMBLREANNOTATED
-}
-
-# Parse probe sequence info
-probeSequences <- as.data.frame(probeSequenceRef[mappedkeys(probeSequenceRef)])
-rownames(probeSequences) <- probeSequences[,1]
-
-# Limit to probes that overlap between data and probe sequences
-commonProbes <- intersect(rownames(exprData), rownames(probeSequences))
-if (length(commonProbes) < 1000)
-  stop("Not enough probes overlap between the annotations and the data.")
-
-exprData <- exprData[commonProbes,,drop=FALSE]
-pValueData <- pValueData[commonProbes,,drop=FALSE]
-probeSequences <- probeSequences[commonProbes,2]
-
-# Do normalization
-normData <- scanNorm(exprData, probeSequences, signalPValueData=pValueData, numCores=numCores)
-
-# Parse probe quality info
-#   (It makes sense to do this after normalization so the SCAN model has more data to work with)
-probeQuality <- as.data.frame(probeQualityRef[mappedkeys(probeQualityRef)])
-goodProbeIndices <- which(grepl("Good", probeQuality$ProbeQuality))
-perfectProbeIndices <- which(grepl("Perfect", probeQuality$ProbeQuality))
-probesToKeep <- probeQuality[c(goodProbeIndices, perfectProbeIndices),1]
-probesToKeep <- intersect(probesToKeep, rownames(normData))
-
-normData <- normData[probesToKeep,,drop=FALSE]
-
-# Map probes to genes
-probeGene <- as.data.frame(probeGeneRef[mappedkeys(probeGeneRef)])
-rownames(probeGene) <- probeGene$IlluminaID
-probesToKeep <- sort(intersect(rownames(probeGene), rownames(exprData)))
-probeGene <- probeGene[probesToKeep,]
-
-normData <- merge(probeGene, as.data.frame(normData), by=0, sort=FALSE)
-normData <- normData[,-c(1,2)]
-colnames(normData)[1] <- "GeneID"
-
-# Save to output file
-outFilePath <- paste("/Output/", gseID, "_SCAN.txt", sep="")
-write.table(normData, outFilePath, row.names=FALSE, col.names=TRUE, quote=FALSE, sep="\t")

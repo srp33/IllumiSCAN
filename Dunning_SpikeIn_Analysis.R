@@ -3,7 +3,7 @@
 # 
 # BiocManager::install(c("broom", "doParallel", "limma", "oligo", "tidyverse"))
 
-library(broom)
+#library(broom)
 library(doParallel)
 library(limma)
 library(oligo)
@@ -23,7 +23,7 @@ readProbeData <- function(filePath, signalColumnSuffix, pValueColumnSuffix)
   # Keep columns of interest
   exprData <- probeData[,c(2, which(grepl(paste(signalColumnSuffix, "$", sep=""), colnames(probeData)))), drop=FALSE]
   colnames(exprData) <- sub(paste(".", signalColumnSuffix, sep=""), "", colnames(exprData))
-  
+
   pValueData <- probeData[,c(2, which(grepl(paste(pValueColumnSuffix, "$", sep=""), colnames(probeData)))), drop=FALSE]
   colnames(pValueData) <- sub(paste(".", pValueColumnSuffix, sep=""), "", colnames(pValueData))
 
@@ -40,68 +40,79 @@ compute.gc <- function(probe.sequences, digits=2)
   listLen(splitted.seqs), digits=digits)
 }
 
-plotGC <- function(exprData, outFilePath) {
-  meanEx <- apply(exprData, 1, mean)
-  r = cor(meanEx, signalProbeSequenceGC, method = "spearman")
-  r = paste0("r = ", round(r, 3))
-  
-  data <- tibble(GC = factor(signalProbeSequenceGC), Mean_Expression = meanEx)
+averageAcrossReplicates <- function(data, log2Transform = FALSE) {
+  data %>%
+    pivot_longer(-ProbeID, names_to = "SampleID", values_to = "Value") %>%
+    mutate(Value = if (log2Transform) log2(Value) else Value) %>%
+    inner_join(targetData, by = "SampleID") %>%
+    group_by(ProbeID, SpikeConc) %>%
+    dplyr::summarize(Value = mean(Value), .groups = "drop") %>%
+    return()
+}
 
-  p <- ggplot(data, aes(x = GC, y = Mean_Expression)) +
-    geom_boxplot(outlier.shape = NA) +
-    geom_jitter(color = "blue", alpha = 0.01, size = 0.5) +
-    annotate("text", x = Inf, y = Inf, label = r, hjust = 1.5, vjust = 3, color = "red") +
-    xlab("Proportion G/C nucleotides") +
-    ylab("Expression level") +
-    theme_bw(base_size = 14)
+plotGC <- function(exprData, signalProbeMeta, outFilePath, ylabSuffix="") {
+  mean_rho <- inner_join(exprData, signalProbeMeta, by = "ProbeID") %>%
+    group_by(SpikeConc) %>%
+    dplyr::summarize(rho = cor(GC_Proportion, Value, method = "spearman")) %>%
+    pull(rho) %>%
+    mean()
+
+  set.seed(0)
   
-  print(p)
+  p <- inner_join(exprData, signalProbeMeta, by = "ProbeID") %>%
+    ggplot(aes(x = GC_Bin, y = Value)) +
+      geom_boxplot(outlier.shape = NA) +
+      # geom_jitter(aes(color = SpikeConc), alpha = 0.01, size = 0.5) +
+      annotate("text", x = Inf, y = Inf, label = paste0("Mean rho = ", round(mean_rho, 3)), hjust = 1.5, vjust = 3, color = "red", size = 4) +
+      xlab("Proportion G/C nucleotides") +
+      ylab(paste0("Expression value", ylabSuffix)) +
+      theme_bw(base_size = 14)
+
+  print(p) %>%
+    suppressWarnings()
   
   ggsave(outFilePath, width = 8, height = 6)
-}
-
-parseConsistencyData <- function(exprData) {
-  normSpikeInData <- exprData[spikeInProbeIDs,]
-  normSpikeInData <- bind_cols(tibble(ProbeID=spikeInProbeIDs), normSpikeInData)
-  normSpikeInData <- pivot_longer(normSpikeInData, -ProbeID, names_to = "SampleID", values_to = "Value")
-  normSpikeInData <- inner_join(normSpikeInData, targetData, by="SampleID")
   
-  evalData <- spikeInAnnotationData %>%
-    dplyr::select(ProbeID, TargetID)
-  evalData$ProbeID <- factor(as.character(evalData$ProbeID))
-  evalData <- inner_join(evalData, normSpikeInData, by="ProbeID")
-
-  return(evalData)
+  return(mean_rho)
 }
 
-plotConsistency <- function(evalData, metric, description, outFilePath) {
-  metric <- bquote(R^2 == .(round(metric, 3)))
+plotConcentrations <- function(normData, outFilePath, ylabSuffix="") {
+  evalData <- inner_join(normData, spikeInAnnotationData)
+
+  mean_rho <- dplyr::group_by(evalData, ProbeID) %>%
+    dplyr::summarize(rho = cor(SpikeConc, Value, method = "spearman")) %>%
+    pull(rho) %>%
+    mean()
+
+  set.seed(0)
   
   p <- mutate(evalData, SpikeConc = factor(SpikeConc, levels = spikeLevels)) %>%
     ggplot(aes(x = SpikeConc, y = Value)) +
     geom_boxplot(outlier.shape = NA) +
     geom_jitter(width = 0.2, alpha = 0.08) +
-    annotate("text", x = 10.5, y = 1, label = metric, size = 5, color = "red") +
-    ggtitle(description) +
+    annotate("text", x = -Inf, y = Inf, hjust = -0.35, vjust = 2, label = paste0("Mean rho = ", round(mean_rho, 3)), color = "red", size = 4) +
+    xlab("Spike-in concentration") +
+    ylab(paste0("Expression value", ylabSuffix)) +
     theme_bw(base_size = 14)
-  
-  print(p)
-  
+
+  print(p) %>%
+    suppressWarnings()
+
   ggsave(outFilePath, width = 8, height = 6)
-}
-
-calcConsistencyMetric <- function(evalData)
-{
-  evalFit <- lm(Value~SpikeConc, data=evalData)
   
-  return(summary(evalFit)$r.squared)
+  return(mean_rho)
+}
+
+getStats <- function(normData) {
+  x <- pull(normData, Value)
+  return(c(min(x), mean(x), median(x), max(x), sd(x)))
 }
 
 #####################################################################
-# Retrieving spike-in data and configuring the experiment
+# Retrieve spike-in data and configure the experiment
 #####################################################################
 
-tmpDir <- tempdir()
+tmpDir <- "tmp"
 zipUrl <- "https://github.com/markdunning/statistical-issues-illumina-microarray/raw/master/spike_beadstudio_output.zip"
 zipFilePath <- paste(tmpDir, "/spike_beadstudio_output.zip", sep="")
 if (!file.exists(zipFilePath)) {
@@ -111,19 +122,31 @@ if (!file.exists(zipFilePath)) {
 sampleDataFilePath <- unz(zipFilePath, "SampleProbeProfile.txt")
 controlDataFilePath <- unz(zipFilePath, "ControlProbeProfile.txt")
 
-sampleAnnotationFilePath <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/NewAnnotationM1.txt"
-controlAnnotationFilePath <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/ControlSequences.txt"
-spikeInProfileFilePath <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/spikeins_profile.csv"
-targetsFilePath <- "https://github.com/markdunning/statistical-issues-illumina-microarray/raw/master/spike_targets.txt"
-
 sampleProbeData <- readProbeData(sampleDataFilePath, "AVG_Signal", "Detection Pval")
 controlProbeData <- readProbeData(controlDataFilePath, "AVG_Signal", "Detection Pval") # This also contains the spike-in data
+
+sampleAnnotationURL <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/NewAnnotationM1.txt"
+controlAnnotationURL <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/ControlSequences.txt"
+spikeInProfileURL <- "https://raw.githubusercontent.com/markdunning/statistical-issues-illumina-microarray/master/spikeins_profile.csv"
+targetsURL <- "https://github.com/markdunning/statistical-issues-illumina-microarray/raw/master/spike_targets.txt"
+
+sampleAnnotationFilePath <- "tmp/NewAnnotationM1.txt"
+controlAnnotationFilePath <- "tmp/ControlSequences.txt"
+spikeInProfileFilePath <- "tmp/spikeins_profile.csv"
+targetsFilePath <- "tmp/spike_targets.txt"
+
+if (!file.exists(targetsFilePath)) {
+  download.file(sampleAnnotationURL, sampleAnnotationFilePath)
+  download.file(controlAnnotationURL, controlAnnotationFilePath)
+  download.file(spikeInProfileURL, spikeInProfileFilePath)
+  download.file(targetsURL, targetsFilePath)
+}
 
 sampleAnnotationData <- suppressMessages(read_tsv(sampleAnnotationFilePath)) %>%
   dplyr::select(ProbeId0, Sequence) %>%
   dplyr::rename(ProbeID=ProbeId0)
 
-controlAnnotationData <- suppressMessages(read_tsv(controlAnnotationFilePath)) %>%
+controlAnnotationData <- suppressWarnings(suppressMessages(read_tsv(controlAnnotationFilePath))) %>%
   dplyr::rename(Sequence=`Seq(5'to3')`, ProbeID=Common_Olicode_Name, ProbeType=Reporter_Group_Name) %>%
   dplyr::select(Sequence, ProbeID, ProbeType) %>%
   dplyr::filter(ProbeType=="negative") %>%
@@ -162,20 +185,21 @@ signalExprData <- inner_join(allAnnotationData, signalExprData, by="ProbeID")
 controlExprData <- inner_join(allAnnotationData, controlExprData, by="ProbeID")
 signalPValueData <- inner_join(allAnnotationData, signalPValueData, by="ProbeID")
 
-signalProbeIDs <- pull(signalExprData, ProbeID)
-signalProbeSequences <- pull(signalExprData, Sequence)
-signalExprData <- as.matrix(dplyr::select(signalExprData, -ProbeID, -Sequence))
-signalPValueData <- as.matrix(dplyr::select(signalPValueData, -ProbeID, -Sequence))
-rownames(signalExprData) <- signalProbeIDs
-rownames(signalPValueData) <- signalProbeIDs
+signalExprMeta <- dplyr::select(signalExprData, ProbeID, Sequence) %>%
+  # mutate(ProbeID = as.character(ProbeID)) %>%
+  mutate(GC_Proportion = compute.gc(Sequence, digits=2)) %>%
+  mutate(GC_Bin = round(GC_Proportion * 2, 1) / 2) %>%
+  mutate(GC_Bin = factor(GC_Bin))
+
+signalExprMatrix <- as.matrix(dplyr::select(signalExprData, -ProbeID, -Sequence))
+signalPValueMatrix <- as.matrix(dplyr::select(signalPValueData, -ProbeID, -Sequence))
+rownames(signalExprMatrix) <- pull(signalExprData, ProbeID)
+rownames(signalPValueMatrix) <- pull(signalExprData, ProbeID)
 
 controlProbeIDs <- pull(controlExprData, ProbeID)
 controlProbeSequences <- pull(controlExprData, Sequence)
-controlExprData <- as.matrix(dplyr::select(controlExprData, -ProbeID, -Sequence))
-rownames(controlExprData) <- controlProbeIDs
-
-signalProbeSequenceGC <- compute.gc(signalProbeSequences, digits=2)
-signalProbeSequenceGC <- round(signalProbeSequenceGC * 2, 1) / 2
+controlExprMatrix <- as.matrix(dplyr::select(controlExprData, -ProbeID, -Sequence))
+rownames(controlExprMatrix) <- controlProbeIDs
 
 targetData <- suppressMessages(read_delim(targetsFilePath, delim=" "))
 targetData <- targetData %>% dplyr::select(ArrayNo, SpikeConc) %>% dplyr::rename(SampleID=ArrayNo)
@@ -184,153 +208,251 @@ spikeLevels <- c(0e+00, 1e-02, 3e-02, 1e-01, 3e-01, 1e+00, 3e+00, 1e+01, 3e+01, 
 #targetData$SpikeConc <- factor(targetData$SpikeConc, levels=spikeLevels)
 targetData <- distinct(targetData)
 
-dir.create("Figures", showWarnings = FALSE, recursive = TRUE)
-
-comparisonResults <- NULL
-paramTuningOutFilePath <- "Param_Tuning_Results.tsv"
-
-#####################################################################
-# Save and plot the non-normalized data and detection p-values
-#####################################################################
-
-outFilePrefix <- "Figures/NonNormalizedExpression"
-outFilePath <- paste0(outFilePrefix, ".tsv.gz")
-if (!file.exists(outFilePath))
-  write_tsv(signalExprData %>% as.data.frame() %>% rownames_to_column("ProbeID"), outFilePath)
-
-if (!file.exists(paramTuningOutFilePath)) {
-  plotGC(log2(signalExprData), paste0(outFilePrefix, "_GC.pdf")) # There is a large dynamic range, so log2-transform the values.
-
-  evalData <- parseConsistencyData(signalExprData) %>%
-    mutate(Value = log2(Value)) # There is a large dynamic range, so log2-transform the values.
-  metric <- calcConsistencyMetric(evalData)
-
-  plotConsistency(evalData, metric, "Non-normalized expression values", paste0(outFilePrefix, "_Eval.pdf"))
-  comparisonResults <- rbind(comparisonResults, c("Non-normalized expression values", NA, NA, NA, metric))
-}
-
-outFilePrefix <- "Figures/DetectionPValues"
-outFilePath <- paste0(outFilePrefix, ".tsv.gz")
-if (!file.exists(outFilePath))
-  write_tsv(signalPValueData %>% as.data.frame() %>% rownames_to_column("ProbeID"), outFilePath)
-
-if (!file.exists(paramTuningOutFilePath)) {
-  plotGC(log2(signalPValueData), paste0(outFilePrefix, "_GC.pdf"))
-  
-  evalData <- parseConsistencyData(signalPValueData)
-  metric <- calcConsistencyMetric(evalData)
-  
-  plotConsistency(evalData, metric, "Detection p-values", paste0(outFilePrefix, "_Eval.pdf"))
-  comparisonResults <- rbind(comparisonResults, c("Non-normalized expression values", NA, NA, NA, metric))
-}
-
 #####################################################################
 # Parameter combination evaluation
 #####################################################################
 
-convThresholdOptions <- c(0.01, 0.1, 1, 10)
-intervalNOptions <- c(1000, 10000, 20000, 50000)
-binsizeOptions <- c(50, 500, 5000)
+dir.create("Outputs", showWarnings = FALSE, recursive = TRUE)
+
+comparisonResults <- NULL
+paramTuningOutFilePath <- "Param_Tuning_Results.tsv"
+
+# backgroundCorrectOptions <- c("none")
+# normalizationOptions <- c("none")
+# scanOptions <- c("none")
+
+backgroundCorrectOptions <- c("none", "controls", "detectionP")
+normalizationOptions <- c("none", "quantile", "vsn")
+scanOptions <- c("none", "SCAN", "UPC", "SCANnocontrols")
+
+# convThresholdOptions <- c(0.01, 0.5, 1, 5)
+# intervalNOptions <- c(1000, 10000, 50000)
+# binsizeOptions <- c(50, 500, 5000)
 
 numCores = 4
 verbose = FALSE
 
-paramCombos <- expand.grid(convThresholdOptions, intervalNOptions, binsizeOptions)
-colnames(paramCombos) <- c("convThreshold", "intervalN", "binsize")
+paramCombos <- expand_grid(backgroundCorrectOptions, normalizationOptions, scanOptions)
+colnames(paramCombos) <- c("backgroundCorrectOption", "normalizationOption", "scanOption")
 
 if (!file.exists(paramTuningOutFilePath))
 {
   for (i in 1:nrow(paramCombos))
   {
     print(paste("Executing parameter combination when using control data ", i, "...", sep=""))
-    convThreshold <- paramCombos[i,1]
-    intervalN <- paramCombos[i,2]
-    binsize <- paramCombos[i,3]
+    paramCombo = as.vector(unlist(paramCombos[i,]))
+    backgroundCorrectOption <- paramCombo[1]
+    normalizationOption <- paramCombo[2]
+    scanOption <- paramCombo[3]
 
-    outFilePrefix <- paste0("Figures/", convThreshold, "_", intervalN, "_", binsize, "_WithControls")
-    normalizedFilePath <- paste0(outFilePrefix, "_NormData.tsv.gz")
+    outFilePrefix <- paste0("Outputs/", paste(paramCombo, collapse="_"))
+    normalizedFilePath <- paste0(outFilePrefix, "_Data.tsv.gz")
 
-    if (file.exists(normalizedFilePath)) {
-      normData <- read_tsv(normalizedFilePath)
-      probeIDs <- pull(normData, ProbeID)
-      normData <- select(normData, -ProbeID)
-      normData <- as.matrix(normData)
-      rownames(normData) <- probeIDs
-    } else {
-      normData <- scanNorm(signalExprData, signalProbeSequences, controlExprData = controlExprData, convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, numCores=numCores, verbose=verbose)
-      write_tsv(normData %>% as.data.frame() %>% rownames_to_column("ProbeID"), normalizedFilePath)
+    probeSequences <- signalExprData$Sequence
+
+    if (!file.exists(normalizedFilePath)) {
+      if (backgroundCorrectOption == "none") {
+        normData <- signalExprMatrix
+      } else {
+        if (backgroundCorrectOption == "controls") {
+          normData <- backgroundCorrect(signalExprMatrix, controlExprData=controlExprMatrix)
+          probeSequences <- c(probeSequences, controlProbeSequences)
+        } else {
+          normData <- backgroundCorrect(signalExprMatrix, signalPValueData=signalPValueMatrix)
+        }
+      }
+  
+      # This is supposed to be done with raw intensities (I assume background correction is okay).    
+      if (normalizationOption == "vsn") {
+        normData <- normalizeVSN(normData)
+        normData <- 2^normData # Reverse the log2 transformation
+      }
+  
+      if (scanOption %in% c("SCAN", "UPC", "SCANnocontrols")) {
+        # It is possible backgroundCorrection uses controls but SCAN does not.
+        # Also, when backgroundCorrection = "none", we should get approximately
+        #   the same result whether scanOption is "SCAN" or "SCANnocontrols".
+        if (scanOption == "SCANnocontrols") {
+          normData2 <- normData[1:nrow(signalExprMatrix),]
+          probeSequences2 <- signalExprData$Sequence
+        } else {
+          normData2 <- normData
+          probeSequences <- probeSequences
+        }
+
+        normData <- scanNorm(normData2, probeSequences2, asUPC = scanOption == "UPC", verbose = TRUE)
+        #convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, normalizationType=normalizationType, quantileNormalize=quantileNormalize, numCores=numCores, verbose=verbose
+      }
+  
+      if (normalizationOption == "quantile") {
+        normData <- normalizeBetweenArrays(normData, method = "quantile")
+      }
+      
+      # Remove control probes if they are there.
+      normData <- normData[1:nrow(signalExprMatrix),]
+  
+      if (scanOption != "UPC") {
+        normData <- log2(normData)
+      }
+  
+      normData <- as.data.frame(normData) %>%
+        rownames_to_column("ProbeID") %>%
+        mutate(ProbeID = as.integer(str_replace(ProbeID, "^X", ""))) %>%
+        averageAcrossReplicates()
+      
+      write_tsv(normData, normalizedFilePath)
     }
-    
-    plotGC(normData, paste0(outFilePrefix, "_GC.pdf"))
 
-    evalData <- parseConsistencyData(normData)
-    metric <- calcConsistencyMetric(evalData)
+    normData <- read_tsv(normalizedFilePath)
+  
+    gc_rho <- plotGC(normData, signalExprMeta, paste0(outFilePrefix, "_GC.pdf"))
+    conc_rho <- plotConcentrations(normData, paste0(outFilePrefix, "_Spike.pdf"))
+    stats <- getStats(normData)
 
-    description = paste0("convThreshold = ", convThreshold, "; intervalN = ", intervalN, "; binsize = ", binsize, "; with controls")
-    plotConsistency(evalData, metric, description, paste0(outFilePrefix, "_Eval.pdf"))
-
-    comparisonResults <- rbind(comparisonResults, c("With controls", convThreshold, intervalN, binsize, metric))
-
-    print(paste("Executing parameter combination when using detection p-values", i, "...", sep=""))
-    
-    outFilePrefix <- paste0("Figures/", convThreshold, "_", intervalN, "_", binsize, "_DetectionPValues")
-    normalizedFilePath <- paste0(outFilePrefix, "_NormData.tsv.gz")
-    
-    if (file.exists(normalizedFilePath)) {
-      normData <- read_tsv(normalizedFilePath)
-      probeIDs <- pull(normData, ProbeID)
-      normData <- select(normData, -ProbeID)
-      normData <- as.matrix(normData)
-      rownames(normData) <- probeIDs
-    } else {
-      normData <- scanNorm(signalExprData, signalProbeSequences, signalPValueData = signalPValueData, convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, numCores=numCores, verbose=verbose)
-      write_tsv(normData %>% as.data.frame() %>% rownames_to_column("ProbeID"), normalizedFilePath)
-    }
-    
-    plotGC(normData, paste0(outFilePrefix, "_GC.pdf"))
-
-    evalData <- parseConsistencyData(normData)
-    metric <- calcConsistencyMetric(evalData)
-    
-    description = paste0("convThreshold = ", convThreshold, "; intervalN = ", intervalN, "; binsize = ", binsize, "; detection p-values")
-    plotConsistency(evalData, metric, description, paste0(outFilePrefix, "_Eval.pdf"))
-    
-    comparisonResults <- rbind(comparisonResults, c("Detection p-values", convThreshold, intervalN, binsize, metric))
-
-    print(paste("Executing parameter combination with no controls or detection p-values", i, "...", sep=""))
-    
-    outFilePrefix <- paste0("Figures/", convThreshold, "_", intervalN, "_", binsize, "_ExpressionOnly")
-    normalizedFilePath <- paste0(outFilePrefix, "_NormData.tsv.gz")
-    
-    if (file.exists(normalizedFilePath)) {
-      normData <- read_tsv(normalizedFilePath)
-      probeIDs <- pull(normData, ProbeID)
-      normData <- select(normData, -ProbeID)
-      normData <- as.matrix(normData)
-      rownames(normData) <- probeIDs
-    } else {
-      normData <- scanNorm(signalExprData, signalProbeSequences, convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, numCores=numCores, verbose=verbose)
-      write_tsv(normData %>% as.data.frame() %>% rownames_to_column("ProbeID"), normalizedFilePath)
-    }
-    
-    plotGC(normData, paste0(outFilePrefix, "_GC.pdf"))
-    
-    evalData <- parseConsistencyData(normData)
-    metric <- calcConsistencyMetric(evalData)
-    
-    description = paste0("convThreshold = ", convThreshold, "; intervalN = ", intervalN, "; binsize = ", binsize, "; expression only")
-    plotConsistency(evalData, metric, description, paste0(outFilePrefix, "_Eval.pdf"))
-    
-    comparisonResults <- rbind(comparisonResults, c("Expression only", convThreshold, intervalN, binsize, metric))
-    #stop("got here")
+    comparisonResults <- rbind(comparisonResults, c(backgroundCorrectOption, normalizationOption, scanOption, stats, gc_rho, conc_rho))
   }
 
-  colnames(comparisonResults) <- c("Input data", "convThreshold", "intervalN", "binsize", "Metric")
-  comparisonResults <- as_tibble(comparisonResults)
-  write_tsv(arrange(comparisonResults, desc(Metric)), paramTuningOutFilePath)
+  colnames(comparisonResults) <- c("backgroundCorrection", "normalization", "scan", "min", "mean", "median", "max", "sd", "GC rho", "Spike-in concentration rho")
+  comparisonResults <- as_tibble(comparisonResults) %>%
+    mutate(min = as.numeric(min),
+           max = as.numeric(max),
+           sd = as.numeric(sd),
+           `GC rho` = as.numeric(`GC rho`),
+           `Spike-in concentration rho` = as.numeric(`Spike-in concentration rho`))
+
+  write_tsv(comparisonResults, paramTuningOutFilePath)
 }
 
-#TODO:
-#  PlotGC bias before and after.
-#  Plot the summarized results? Or just examine it as a table?
-#  Create a scatterplot of the normalized data for the top-performing parameters vs. the bottom-performing params.
+#####################################################################
+# Evaluate "real-world" datasets
+#####################################################################
+
+filePath <- getNonNormalizedDataFromGEO("GSE31909")
+normalized <- normalizeBeadChipData(filePath)
+
+#####################################################################
+# Plot the summarized results of parameter evaluation
+#####################################################################
+
+comparisonResults <- read_tsv(paramTuningOutFilePath) %>%
+  mutate(GC_Rank = rank(abs(`GC rho`))) %>%
+  mutate(Spike_Rank = rank(-`Spike-in concentration rho`)) %>%
+  mutate(Combined_Rank = GC_Rank + Spike_Rank) %>%
+  arrange(Combined_Rank)
+
+stop("got to here...................")
+
+# filter(comparisonResults, !is.na(convThreshold)) %>%
+#   ggplot(aes(x = as.factor(convThreshold), y = `GC rho`)) +
+#     geom_boxplot(outlier.shape = NA) +
+#     geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#     xlab("SCAN convergence threshold parameter") +
+#     ylab("Mean rho statistic") +
+#     ggtitle("Correlation between GC content and expression values per spike-in concentration") +
+#     theme_bw(base_size = 14)
+# 
+# filter(comparisonResults, !is.na(intervalN)) %>%
+#   ggplot(aes(x = as.factor(intervalN), y = `GC rho`)) +
+#   geom_boxplot(outlier.shape = NA) +
+#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#   xlab("SCAN intervalN parameter") +
+#   ylab("Mean rho statistic") +
+#   ggtitle("Correlation between GC content and expression values per spike-in concentration") +
+#   theme_bw(base_size = 14)
+# 
+# filter(comparisonResults, !is.na(binsize)) %>%
+#   ggplot(aes(x = as.factor(binsize), y = `GC rho`)) +
+#   geom_boxplot(outlier.shape = NA) +
+#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#   xlab("SCAN binsize parameter") +
+#   ylab("Mean rho statistic") +
+#   ggtitle("Correlation between GC content and expression values per spike-in concentration") +
+#   theme_bw(base_size = 14)
+# 
+# filter(comparisonResults, !is.na(convThreshold)) %>%
+#   ggplot(aes(x = as.factor(convThreshold), y = `Spike-in concentration rho`)) +
+#     geom_boxplot(outlier.shape = NA) +
+#     geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#     xlab("SCAN convergence threshold parameter") +
+#     ylab("Mean rho statistic") +
+#     ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
+#     theme_bw(base_size = 14)
+# 
+# filter(comparisonResults, !is.na(intervalN)) %>%
+#   ggplot(aes(x = as.factor(intervalN), y = `Spike-in concentration rho`)) +
+#   geom_boxplot(outlier.shape = NA) +
+#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#   xlab("SCAN intervalN parameter") +
+#   ylab("Mean rho statistic") +
+#   ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
+#   theme_bw(base_size = 14)
+# 
+# filter(comparisonResults, !is.na(binsize)) %>%
+#   ggplot(aes(x = as.factor(binsize), y = `Spike-in concentration rho`)) +
+#   geom_boxplot(outlier.shape = NA) +
+#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#   xlab("SCAN binsize parameter") +
+#   ylab("Mean rho statistic") +
+#   ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
+#   theme_bw(base_size = 14)
+# 
+# baselineResults = filter(comparisonResults, `Input data` == "Non-normalized expression values")
+# benchmarkResults = filter(comparisonResults, `Input data` != "Non-normalized expression values") %>%
+#   filter(`Input data` != "Detection p-values")
+# 
+# ggplot(benchmarkResults, aes(x = `Input data`, y = Combined_Rank)) +
+#   geom_boxplot() +
+#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+#   geom_hline(yintercept = pull(baselineResults, Combined_Rank), color = "blue", linetype = "dashed") +
+#   xlab("Input data type") +
+#   ylab("Combined rank (lower is better)") +
+#   theme_bw()
+
+# TODO: Move normalizeBeadChip.R logic to IllumiSCAN.R.
+# TODO: Assess consistency of replicates: GSE31909, GSE43692, GSE169568
+#         https://www.ncbi.nlm.nih.gov/geo/browse/?view=series&display=500&platform=10558&zsort=date
+# TODO: For now, we just picked one of the parameter combinations below. Need to compare them?
+# TODO: Rework the above graphs.
+# TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)
+#         Or at least make a note of it.
+# TODO: Work with Down Syndrome data from Process_Illumina_Microarray.R.
+
+#####################################################################
+# Plot different versions of the data against each other.
+#####################################################################
+
+# nonNormalized = read_tsv("Outputs/NonNormalizedExpression.tsv.gz") %>%
+#   averageAcrossReplicates(log2Transform = TRUE) %>%
+#   dplyr::rename(`Not normalized` = Value)
+# 
+# normWithControls = read_tsv("Outputs/0.01_1000_50_WithControls_NormData.tsv.gz") %>%
+#   averageAcrossReplicates() %>%
+#   dplyr::rename(`Normalized with controls` = Value)
+# 
+# normDetectionP = read_tsv("Outputs/0.01_1000_50_DetectionPValues_NormData.tsv.gz") %>%
+#   averageAcrossReplicates() %>%
+#   dplyr::rename(`Normalized with detection p-values` = Value)
+# 
+# normExpressionOnly = read_tsv("Outputs/0.01_1000_50_ExpressionOnly_NormData.tsv.gz") %>%
+#   averageAcrossReplicates() %>%
+#   dplyr::rename(`Normalized with expression data only` = Value)
+# 
+# plot_data = inner_join(nonNormalized, normWithControls) %>%
+#   inner_join(normDetectionP) %>%
+#   inner_join(normExpressionOnly)
+# 
+# cor(pull(plot_data, `Not normalized`), pull(plot_data, `Normalized with controls`), method="spearman")
+# cor(pull(plot_data, `Normalized with controls`), pull(plot_data, `Normalized with detection p-values`), method="spearman")
+# cor(pull(plot_data, `Normalized with controls`), pull(plot_data, `Normalized with expression data only`), method="spearman")
+# cor(pull(plot_data, `Normalized with detection p-values`), pull(plot_data, `Normalized with expression data only`), method="spearman")
+# 
+# plot_data %>%
+#   # ggplot(aes(x = `Not normalized`, y = `Normalized with controls`)) +
+#   # ggplot(aes(x = `Normalized with controls`, y = `Normalized with detection p-values`)) +
+#   ggplot(aes(x = `Normalized with controls`, y = `Normalized with expression data only`)) +
+#     # geom_point(alpha = 0.05, size = 0.5) +
+#     geom_hex(bins = 100) +
+#     scale_fill_viridis_c() +
+#    # geom_smooth(method  = "lm", color = "red", size = 0.5) +
+#     facet_wrap(vars(SpikeConc)) +
+#     theme_bw()

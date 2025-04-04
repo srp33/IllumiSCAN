@@ -1,4 +1,97 @@
-scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL, controlExprData=NULL, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
+# if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+
+# for (packageName in c("httr", "limma", "oligo", "doParallel" "illuminaHumanv4.db")) {
+#   BiocManager::install(packageName)
+# }
+
+library(doParallel)
+library(httr)
+library(limma)
+library(oligo)
+
+normalizeBeadChipData <- function(filePath, species="Human", platformVersion="4", probeIDColumn="ID_REF", exprColumnPattern="GSM", detectionPValueColumnPattern="Detection Pval", numCores=1, verbose=FALSE) {
+  # TODO: Make sure species and platform are valid.
+
+  platformPackagePrefix <- paste0("illumina", species, "v", platformVersion)
+  platformPackageName <- paste0(platformPackagePrefix, ".db")
+  message(paste0("Loading package ", platformPackageName))
+  
+  library(platformPackageName, character.only=TRUE)
+  
+  getRefInfo <- function(platformPackagePrefix, suffix) {
+    info <- get(paste0(platformPackagePrefix, suffix))
+    info <- info[mappedkeys(info)] # Returns the subset of mapped keys.
+    return(as.data.frame(info))
+  }
+
+  # https://bioconductor.org/packages/release/data/annotation/manuals/illuminaHumanv4.db/man/illuminaHumanv4.db.pdf
+  probeSequenceRef <- getRefInfo(platformPackagePrefix, "PROBESEQUENCE")
+  # probeReporterRef <- getRefInfo(platformPackagePrefix, "REPORTERGROUPID") # Control, housekeeping, permuted probes
+  probeQualityRef <- getRefInfo(platformPackagePrefix, "PROBEQUALITY")
+  probeGeneRef <- getRefInfo(platformPackagePrefix, "ENSEMBLREANNOTATED")
+  
+  # Remove low-quality probes
+  perfectProbes = which(grepl("Perfect", probeQualityRef$ProbeQuality))
+  goodProbes = which(grepl("Good", probeQualityRef$ProbeQuality))
+  probesToKeep = probeQualityRef$IlluminaID[c(perfectProbes, goodProbes)]
+
+  # Keep probes mapped to genes
+  probesToKeep = intersect(probesToKeep, probeGeneRef$IlluminaID)
+
+  nonNormData <- read.ilmn(filePath, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern)
+  
+  exprData <- nonNormData$E
+  detectionPValues <- nonNormData$other$`Detection Pval`
+  
+  colnames(exprData) <- paste0(exprColumnPattern, colnames(exprData))
+  colnames(detectionPValues) <- paste0(exprColumnPattern, colnames(detectionPValues))
+
+  probesToKeep <- intersect(probesToKeep, rownames(exprData))
+  exprData <- exprData[probesToKeep,]
+  detectionPValues <- detectionPValues[probesToKeep,]
+  
+  rownames(probeSequenceRef) = probeSequenceRef$IlluminaID
+  probeSequences = probeSequenceRef[probesToKeep, 2]
+  
+  normData <- backgroundCorrect(exprData, signalPValueData=detectionPValues)
+  
+  normData <- scanNorm(exprData, probeSequences, numCores=numCores, verbose=verbose)
+
+  rownames(probeGeneRef) = probeGeneRef$IlluminaID
+  probeGenes = probeGeneRef[probesToKeep, 2]
+  # TODO: Add an argument to summarize at the gene level and then implement the logic for this.
+
+  return(normData)
+}
+
+getNonNormalizedDataFromGEO <- function(gseID) {
+  nonNormalizedURL = paste0("https://www.ncbi.nlm.nih.gov/geo/download/?acc=", gseID, "&format=file&file=", gseID, "%5Fnon%5Fnormalized%2Etxt%2Egz")
+  
+  downloadDirPath = paste0(tempdir(), "/", gseID)
+  
+  if (!dir.exists(downloadDirPath)) {
+    dir.create(downloadDirPath)
+  }
+  
+  downloadFilePath = paste0(downloadDirPath, "/data.txt.gz")
+  
+  if (file.exists(downloadFilePath)) {
+    return(downloadFilePath)
+  }
+  
+  response <- HEAD(nonNormalizedURL)
+  
+  if (status_code(response) == 200) {
+    download.file(nonNormalizedURL, destfile = downloadFilePath, mode = "wb")
+    
+    return(downloadFilePath)
+  } else {
+    stop(paste0("A non-normalized GEO file could not be found using the standard URL for ", gseID, ". You will need to provide the URL."))
+  }
+}
+
+backgroundCorrect <- function(signalExprData, controlExprData=NULL, signalPValueData=NULL)
 {
   #############################################
   # Check parameters
@@ -6,13 +99,18 @@ scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL
   
   if (!is.matrix(signalExprData))
     stop("signalExprData must be a matrix.")
-  if (!is.vector(signalProbeSequences))
-    stop("signalProbeSequences must be a vector")
-  if (nrow(signalExprData) != length(signalProbeSequences))
-    stop("The dimensions of signalExprData and signalProbeSequences are incompatible.")
-
-  if (!is.null(signalPValueData))
-  {
+  
+  if (is.null(signalPValueData)) {
+    if (is.null(controlExprData)) {
+      stop("If signalPValueData is not provided, controlExprData must be provided.")
+    } else {
+      if (!is.matrix(controlExprData))
+        stop("controlExprData must be a matrix.")
+      
+      if (ncol(signalExprData) != ncol(controlExprData))
+        stop("The dimensions of signalExprData and controlExprData are incompatible.")
+    }
+  } else {
     if (!is.matrix(signalPValueData))
       stop("signalPValueData must be a matrix.")
     
@@ -20,42 +118,75 @@ scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL
       stop("The dimensions of signalExprData and signalPValueData are incompatible.")
   }
   
-  if (!is.null(controlExprData))
-  {
-    if (!is.matrix(controlExprData))
-      stop("controlExprData must be a matrix.")
-    
-    if (ncol(signalExprData) != ncol(controlExprData))
-      stop("The dimensions of signalExprData and controlExprData are incompatible.")
+  if (any(signalExprData < 0)) {
+    stop("It appears that the values in signalExprData have already been background corrected. Please use raw, probe-level expression intensities.")
   }
   
   #############################################
-  # Perform background correction, if necessary
+  # Perform background correction (limma).
+  #   It models the observed signal as a combination of: Observed_Signal = True_Signal + Background_Noise
+  #   It removes non-specific fluorescence, helping improve the accuracy of low-intensity probe measurements.
+  #   https://academic.oup.com/nar/article/38/22/e204/1049223
   #############################################
+
+  status <- rep("regular", nrow(signalExprData))
   
-  exprData <- doLog2(signalExprData)
-  
-  if (all(signalExprData > 0)) { # No background subtraction has been performed
-    if (is.null(controlExprData)) {
-      if (!is.null(signalPValueData))
-        exprData <- nec(x = doLog2(signalExprData), detection.p = signalPValueData)
-    } else {
-      status <- c(rep("regular", nrow(signalExprData)), rep("negative", nrow(controlExprData)))
-      
-      combinedExprData <- rbind(signalExprData, controlExprData)
-      
-      exprData <- nec(x = doLog2(combinedExprData), status = status)
-      exprData <- exprData[1:nrow(signalExprData),,drop=FALSE]
-      
-      ##      exprData <- doLog2(rbind(signalExprData, controlExprData))
-    }
+  if (is.null(controlExprData)) { # We have detection p-values only.
+    exprData <- nec(x = signalExprData, status = status, detection.p = signalPValueData)
+  } else { # We have control values.
+    status <- c(status, rep("negative", nrow(controlExprData)))
+
+    exprData <- nec(x = rbind(signalExprData, controlExprData), status = status)
+    # signalCorrectedData <- exprData[1:nrow(signalExprData),]
+    # controlCorrectedData <- exprData[(nrow(signalExprData) + 1):(nrow(signalExprData) + nrow(controlExprData)),]
   }
   
+  return(exprData)
+}
+
+# intervalN: Interval for probe sampling, Controls how many probes are selected for estimating model parameters.
+#            Instead of using every single probe (which is computationally expensive), the function samples probes at intervals.
+#            Smaller values → More probes are used, leading to better accuracy but slower computation.
+#            Larger values → Fewer probes are used, making computation faster but potentially less precise.
+# binsize:   Size of bins for intensity normalization
+#            In SCAN normalization, probes are grouped into bins based on their intensity.
+#            binsize controls how many probes go into each bin.
+#            Smaller bins = More precise normalization but slower computation.
+#            Larger bins = Smoother adjustments but may miss finer details.
+# nbins:     Number of bins
+#            Determines how many bins are used for normalizing intensity distributions.
+#            Instead of normalizing each probe individually, the algorithm divides probes into nbins groups based on their signal intensity.
+#            More bins = Finer-grained correction but slower computation.
+#            Fewer bins = More general correction, which may not capture subtle effects.
+# maxIt:     Maximum number of iterations
+#            Controls how many times the EM algorithm is allowed to run before stopping.
+#            If the algorithm has not converged after maxIt iterations, it forces an early stop.
+#            Higher values allow EM to run longer, improving accuracy.
+#            Lower values can speed up processing but may result in incomplete convergence.
+# asUPC:     Whether to return values as Universal exPression Codes (probabilistic indicators of expression).
+# numCores:  The number of CPU cores to use when processing the data.
+# verbose:   Whether to display verbose output when processing the data.
+
+scanNorm <- function(exprData, probeSequences, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
+{
   #############################################
-  # Normalize
+  # Check parameters
+  #############################################
+
+  if (!is.matrix(exprData))
+    stop("exprData must be a matrix.")
+  if (!is.vector(probeSequences))
+    stop("probeSequences must be a vector")
+  if (nrow(exprData) != length(probeSequences))
+    stop("The dimensions of exprData and probeSequences must be identical.")
+  
+  #TODO: Make sure other parameters are in valid range.
+  
+  #############################################
+  # SCAN normalize
   #############################################
   
-  mx = buildDesignMatrix(signalProbeSequences)
+  mx = buildDesignMatrix(probeSequences)
   
   numSamples <- ncol(exprData)
   
@@ -71,10 +202,10 @@ scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL
   }
   else
   {
-    normData <- foreach(i = 1:ncol(exprData), .combine = cbind, .export=c("scanNormVector", "sampleProbeIndices", "EM_vMix", "mybeta", "assign_bin", "vsig", "vresp", "dn", "vbeta", "sig")) %dopar%
-      {
-        scanNormVector(exprData[,i], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
-      }
+    normData <- foreach(i = 1:ncol(exprData), .combine = cbind, .export=c("scanNormVector", "doLog2", "sampleProbeIndices", "EM_vMix", "mybeta", "assign_bin", "vsig", "vresp", "dn", "vbeta", "sig")) %dopar%
+    {
+      scanNormVector(exprData[,i], mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
+    }
   }
   
   if (numSamples > 1 & numCores > 1)
@@ -84,13 +215,16 @@ scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL
   colnames(normData) <- colnames(exprData)
   
   ##########################
-  normData <- normData[rownames(signalExprData),,drop=FALSE]
+  normData <- normData[rownames(exprData),,drop=FALSE]
   
   return(normData)
 }
 
 scanNormVector <- function(my, mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose)
 {
+  # Log transform the data, if needed.
+  my = doLog2(my)
+
   # Add a tiny amount of random noise
   set.seed(0)
   noise = rnorm(length(my)) / 10000000
@@ -117,6 +251,8 @@ scanNormVector <- function(my, mx, convThreshold, intervalN, binsize, nbins, max
   gam = vresp(y=my, X=mx, bin=bin, p=mixResult$p, b1=mixResult$b1, s1=mixResult$s1, b2=mixResult$b2, s2=mixResult$s2, verbose=verbose)[,2]
   
   y_norm = round(y_norm, 8)
+  y_norm = 2^y_norm # Reverse log2 transformation.
+  
   gam = round(gam, 8)
   
   if (asUPC)
@@ -129,10 +265,10 @@ scanNormVector <- function(my, mx, convThreshold, intervalN, binsize, nbins, max
 
 doLog2 <- function(x)
 {
-  # This is a semi-crude way of checking whether the values were not previously log-transformed
-  if (max(x) > 100)
+  # This is a semi-crude way of checking whether the values were not previously log-transformed.
+  if (max(x) > 30)
     x <- log2(x)
-  
+
   return(x)
 }
 
@@ -146,6 +282,7 @@ buildDesignMatrix = function(seqs, verbose=TRUE)
   numT = 60 - (numA + numC + numG)
   
   mx = cbind(numT, mx, numA^2, numC^2, numG^2, numT^2)
+  #mx = cbind(numT, mx, as.integer(numA^2), as.integer(numC^2), as.integer(numG^2), as.integer(numT^2))
   #mx = cbind(numA, numC, numG, numA^2, numC^2, numG^2, numT^2)
   #mx = cbind(numA, numC, numG)
   mx = apply(mx, 2, as.integer)  
