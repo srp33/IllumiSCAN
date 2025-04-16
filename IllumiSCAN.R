@@ -1,80 +1,321 @@
 # if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
 
-# for (packageName in c("httr", "limma", "oligo", "doParallel" "illuminaHumanv4.db")) {
+# for (packageName in c("doParallel", "GEOquery", "httr", "limma", "oligo", "illuminaHumanv4.db")) {
 #   BiocManager::install(packageName)
 # }
 
 library(doParallel)
+library(GEOquery)
 library(httr)
 library(limma)
 library(oligo)
 
-normalizeBeadChipData <- function(filePath, species="Human", platformVersion="4", probeIDColumn="ID_REF", exprColumnPattern="GSM", detectionPValueColumnPattern="Detection Pval", numCores=1, verbose=FALSE) {
-  # TODO: Make sure species and platform are valid.
-
-  platformPackagePrefix <- paste0("illumina", species, "v", platformVersion)
+normalizeBeadChipData <- function(filePaths, platformPackagePrefix, fileFieldDelimiter="\t", probeIDColumn=NULL, exprColumnPattern=NULL, detectionPValueColumnPattern=NULL, adjustBackground=TRUE, useSCAN=TRUE, convThreshold=0.5, numCores=1, verbose=FALSE) {
   platformPackageName <- paste0(platformPackagePrefix, ".db")
   message(paste0("Loading package ", platformPackageName))
-  
+
   library(platformPackageName, character.only=TRUE)
-  
-  getRefInfo <- function(platformPackagePrefix, suffix) {
-    info <- get(paste0(platformPackagePrefix, suffix))
-    info <- info[mappedkeys(info)] # Returns the subset of mapped keys.
-    return(as.data.frame(info))
-  }
 
   # https://bioconductor.org/packages/release/data/annotation/manuals/illuminaHumanv4.db/man/illuminaHumanv4.db.pdf
   probeSequenceRef <- getRefInfo(platformPackagePrefix, "PROBESEQUENCE")
-  # probeReporterRef <- getRefInfo(platformPackagePrefix, "REPORTERGROUPID") # Control, housekeeping, permuted probes
   probeQualityRef <- getRefInfo(platformPackagePrefix, "PROBEQUALITY")
-  probeGeneRef <- getRefInfo(platformPackagePrefix, "ENSEMBLREANNOTATED")
   
   # Remove low-quality probes
   perfectProbes = which(grepl("Perfect", probeQualityRef$ProbeQuality))
   goodProbes = which(grepl("Good", probeQualityRef$ProbeQuality))
   probesToKeep = probeQualityRef$IlluminaID[c(perfectProbes, goodProbes)]
-
-  # Keep probes mapped to genes
-  probesToKeep = intersect(probesToKeep, probeGeneRef$IlluminaID)
-
-  nonNormData <- read.ilmn(filePath, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern)
   
+  # Read the first line as a one-row data frame with headers
+  headerOnly <- read.table(filePaths, header = FALSE, sep = fileFieldDelimiter, quote = "\"", 
+                           stringsAsFactors = FALSE, nrows = 1, check.names = FALSE)
+  originalColnames <- trimws(as.character(headerOnly[1, ]))
+
+  # Auto-detect the probeid column.
+  if (is.null(probeIDColumn)) {
+    if (verbose) {
+      message(paste0("Auto-detecting probeIDColumn."))
+    }
+    
+    probeIDColumn <- originalColnames[1]
+  }
+  
+  # Auto-detect detectionPValueColumnPattern.
+
+  if (is.null(detectionPValueColumnPattern)) {
+    if (verbose) {
+      message(paste0("Auto-detecting detectionPValueColumnPattern."))
+    }
+    
+    candidatePValueColnames <- originalColnames[seq(3, length(originalColnames), 2)]
+    detectionPValueColumnPattern <- findLongestCommonPrefix(candidatePValueColnames)
+    
+    if (detectionPValueColumnPattern == "") {
+      message(paste0("No value was specified for the detectionPValueColumnPattern parameter, and a pattern could not be auto-detected."))
+      stop()
+    }
+  }
+
+  # Auto-detect exprColumnPattern.
+  if (is.null(exprColumnPattern)) {
+    if (verbose) {
+      message(paste0("Auto-detecting exprColumnPattern."))
+    }
+    
+    candidateExprColnames <- originalColnames[seq(2, length(originalColnames), 2)]
+    exprColumnPattern <- findLongestCommonPrefix(candidateExprColnames)
+    
+    if (exprColumnPattern == "") {
+      message(paste0("No value was specified for the exprColumnPattern parameter, and a pattern could not be auto-detected."))
+      stop()
+    }
+  }
+
+  nonNormData <- read.ilmn(filePaths, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep=fileFieldDelimiter)
+
+  # When there are unusual delimiters, the read.ilmn function can't handle it well, and the number of columns is zero.
+  # In this scenario, we read the file and then save it with tabs as delimiters. We also have to fix the column
+  # names when R adds suffixes to them.
+  if (ncol(nonNormData$E) == 0) {
+    filePaths2 <- c()
+
+    for (filePath in filePaths) {
+      tmpFilePath <- paste0(tempfile(), ".tsv")
+
+      raw <- read.table(filePath, header = TRUE, sep = "", quote = "\"", stringsAsFactors = FALSE, check.names = FALSE)
+      colnames(raw) <- originalColnames
+      stopifnot(length(originalColnames) == ncol(raw))
+
+      # Save the data to temp file.
+      write.table(raw, file = tmpFilePath, sep = "\t", quote = FALSE,
+                  row.names = FALSE, col.names = TRUE)
+
+      filePaths2 <- c(filePaths2, tmpFilePath)
+    }
+    
+    nonNormData <- read.ilmn(filePaths2, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep="\t")
+  }
+
   exprData <- nonNormData$E
   detectionPValues <- nonNormData$other$`Detection Pval`
-  
+
   colnames(exprData) <- paste0(exprColumnPattern, colnames(exprData))
   colnames(detectionPValues) <- paste0(exprColumnPattern, colnames(detectionPValues))
 
   probesToKeep <- intersect(probesToKeep, rownames(exprData))
   exprData <- exprData[probesToKeep,]
   detectionPValues <- detectionPValues[probesToKeep,]
-  
-  rownames(probeSequenceRef) = probeSequenceRef$IlluminaID
-  probeSequences = probeSequenceRef[probesToKeep, 2]
-  
-  normData <- backgroundCorrect(exprData, signalPValueData=detectionPValues)
-  
-  normData <- scanNorm(exprData, probeSequences, numCores=numCores, verbose=verbose)
 
-  rownames(probeGeneRef) = probeGeneRef$IlluminaID
-  probeGenes = probeGeneRef[probesToKeep, 2]
-  # TODO: Add an argument to summarize at the gene level and then implement the logic for this.
+  if (adjustBackground) {
+    exprData <- backgroundCorrect(exprData, signalPValueData=detectionPValues)
+  }
+  
+  if (useSCAN) {
+    rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
+    probeSequences = probeSequenceRef[probesToKeep, 2]
 
-  return(normData)
+    exprData <- scanNorm(exprData, probeSequences, convThreshold=convThreshold, numCores=numCores, verbose=verbose)
+  }
+
+  return(exprData)
 }
 
-getNonNormalizedDataFromGEO <- function(gseID) {
-  nonNormalizedURL = paste0("https://www.ncbi.nlm.nih.gov/geo/download/?acc=", gseID, "&format=file&file=", gseID, "%5Fnon%5Fnormalized%2Etxt%2Egz")
+# normalizeBeadChipData <- function(filePaths, platformPackagePrefix, fileFieldDelimiter="\t", probeIDColumn=NULL, exprColumnPattern=NULL, detectionPValueColumnPattern=NULL, adjustBackground=TRUE, useSCAN=TRUE, convThreshold=0.5, numCores=1, verbose=FALSE) {
+#   platformPackageName <- paste0(platformPackagePrefix, ".db")
+#   message(paste0("Loading package ", platformPackageName))
+#   
+#   library(platformPackageName, character.only=TRUE)
+#   
+#   # https://bioconductor.org/packages/release/data/annotation/manuals/illuminaHumanv4.db/man/illuminaHumanv4.db.pdf
+#   probeSequenceRef <- getRefInfo(platformPackagePrefix, "PROBESEQUENCE")
+#   # probeReporterRef <- getRefInfo(platformPackagePrefix, "REPORTERGROUPID") # Control, housekeeping, permuted probes
+#   probeQualityRef <- getRefInfo(platformPackagePrefix, "PROBEQUALITY")
+#   probeGeneRef <- getRefInfo(platformPackagePrefix, "ENSEMBLREANNOTATED")
+#   
+#   # Remove low-quality probes
+#   perfectProbes = which(grepl("Perfect", probeQualityRef$ProbeQuality))
+#   goodProbes = which(grepl("Good", probeQualityRef$ProbeQuality))
+#   probesToKeep = probeQualityRef$IlluminaID[c(perfectProbes, goodProbes)]
+#   
+#   # Keep probes mapped to genes
+#   probesToKeep = intersect(probesToKeep, probeGeneRef$IlluminaID)
+#   
+#   # Read the first line as a one-row data frame with headers
+#   headerOnly <- read.table(filePaths, header = FALSE, sep = fileFieldDelimiter, quote = "\"", 
+#                            stringsAsFactors = FALSE, nrows = 1, check.names = FALSE)
+#   originalColnames <- trimws(as.character(headerOnly[1, ]))
+#   
+#   # Auto-detect the probeid column.
+#   if (is.null(probeIDColumn)) {
+#     if (verbose) {
+#       message(paste0("Auto-detecting probeIDColumn."))
+#     }
+#     
+#     probeIDColumn <- originalColnames[1]
+#   }
+#   
+#   # Auto-detect detectionPValueColumnPattern.
+#   
+#   if (is.null(detectionPValueColumnPattern)) {
+#     if (verbose) {
+#       message(paste0("Auto-detecting detectionPValueColumnPattern."))
+#     }
+#     
+#     candidatePValueColnames <- originalColnames[seq(3, length(originalColnames), 2)]
+#     detectionPValueColumnPattern <- findLongestCommonPrefix(candidatePValueColnames)
+#     
+#     if (detectionPValueColumnPattern == "") {
+#       message(paste0("No value was specified for the detectionPValueColumnPattern parameter, and a pattern could not be auto-detected."))
+#       stop()
+#     }
+#   }
+#   
+#   # Auto-detect exprColumnPattern.
+#   if (is.null(exprColumnPattern)) {
+#     if (verbose) {
+#       message(paste0("Auto-detecting exprColumnPattern."))
+#     }
+#     
+#     candidateExprColnames <- originalColnames[seq(2, length(originalColnames), 2)]
+#     exprColumnPattern <- findLongestCommonPrefix(candidateExprColnames)
+#     
+#     if (exprColumnPattern == "") {
+#       message(paste0("No value was specified for the exprColumnPattern parameter, and a pattern could not be auto-detected."))
+#       stop()
+#     }
+#   }
+#   
+#   nonNormData <- read.ilmn(filePaths, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep=fileFieldDelimiter)
+#   
+#   # When there are unusual delimiters, the read.ilmn function can't handle it well, and the number of columns is zero.
+#   # In this scenario, we read the file and then save it with tabs as delimiters. We also have to fix the column
+#   # names in scenarios where R adds suffixes to them.
+#   if (ncol(nonNormData$E) == 0) {
+#     filePaths2 <- c()
+#     
+#     for (filePath in filePaths) {
+#       tmpFilePath <- paste0(tempfile(), ".tsv")
+#       
+#       raw <- read.table(filePath, header = TRUE, sep = "", quote = "\"", stringsAsFactors = FALSE, check.names = FALSE)
+#       colnames(raw) <- originalColnames
+#       stopifnot(length(originalColnames) == ncol(raw))
+#       
+#       # Save the data to temp file.
+#       write.table(raw, file = tmpFilePath, sep = "\t", quote = FALSE,
+#                   row.names = FALSE, col.names = TRUE)
+#       
+#       filePaths2 <- c(filePaths2, tmpFilePath)
+#     }
+#     
+#     nonNormData <- read.ilmn(filePaths2, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep="\t")
+#   }
+#   
+#   exprData <- nonNormData$E
+#   detectionPValues <- nonNormData$other$`Detection Pval`
+#   
+#   colnames(exprData) <- paste0(exprColumnPattern, colnames(exprData))
+#   colnames(detectionPValues) <- paste0(exprColumnPattern, colnames(detectionPValues))
+#   
+#   probesToKeep <- intersect(probesToKeep, rownames(exprData))
+#   exprData <- exprData[probesToKeep,]
+#   detectionPValues <- detectionPValues[probesToKeep,]
+#   
+#   rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
+#   probeSequences = probeSequenceRef[probesToKeep, 2]
+#   
+#   if (adjustBackground) {
+#     exprData <- backgroundCorrect(exprData, signalPValueData=detectionPValues)
+#   }
+#   
+#   if (useSCAN) {
+#     exprData <- scanNorm(exprData, probeSequences, convThreshold=convThreshold, numCores=numCores, verbose=verbose)
+#   }
+#   
+#   # rownames(probeGeneRef) = probeGeneRef$IlluminaID
+#   # probeGenes = probeGeneRef[probesToKeep, 2]
+#   
+#   # TODO: Add an argument to summarize at the gene level and then implement the logic for this.
+#   
+#   return(exprData)
+# }
+
+normalizeBeadChipDataFromGEO <- function(gseID, fileFieldDelimiter="\t", probeIDColumn=NULL, exprColumnPattern=NULL, detectionPValueColumnPattern=NULL, adjustBackground=TRUE, useSCAN=TRUE, convThreshold=0.5, numCores=1, verbose=FALSE) {
+  filePath <- getNonNormalizedDataFromGEO(gseID)
+  annotationPackagePrefix <- getAnnotationPackagePrefixFromGEO(gseID)
   
+  exprs <- normalizeBeadChipData(filePath, annotationPackagePrefix,
+                                      adjustBackground=FALSE,
+                                      useSCAN=FALSE, convThreshold=0.5,
+                                      numCores=4,
+                                      verbose=TRUE)
+View(exprs)
+stop("got to normalizeBeadChipDataFromGEO")
+
+  phenoData <- getPhenoDataFromGEO(gseID)
+
+  gse <- getGEO(gseID, GSEMatrix=TRUE)
+  experimentData <- experimentData(gse[[1]])
+  
+  # It's an AnnotatedDataFrame where:
+  # Rows = features (must match rows in your expression matrix)
+  # Columns = annotations (like gene symbol, chromosome, etc.)
+  # The row names of featureData must match the row names of your expression matrix (exprs(eset)).
+  featureData <- data.frame(
+    gene_id = c("GeneA", "GeneB"),
+    description = c("Apoptosis-related", "Kinase"),
+    row.names = c("GeneA", "GeneB")
+  )
+  
+  fData <- new("AnnotatedDataFrame", data = featureData)
+  
+  # https://www.bioconductor.org/packages/devel/bioc/vignettes/Biobase/inst/doc/ExpressionSetIntroduction.pdf
+  return(ExpressionSet(assayData = exprs,
+                       phenoData = phenoData, 
+                       experimentData = experimentData,
+                       featureData = featureData,
+                       annotation = annotationPackagePrefix))
+}
+
+getRefInfo <- function(platformPackagePrefix, suffix) {
+  info <- get(paste0(platformPackagePrefix, suffix))
+  info <- info[mappedkeys(info)] # Returns the subset of mapped keys.
+  return(as.data.frame(info))
+}
+
+findLongestCommonPrefix <- function(x) {
+  if (length(x) == 0)
+    return("")
+
+  # Split all strings into characters
+  chars <- strsplit(x, "")
+  
+  # Get the minimum length across strings
+  max_prefix_len <- min(sapply(chars, length))
+  
+  prefix <- character()
+  
+  for (i in seq_len(max_prefix_len)) {
+    ith_chars <- sapply(chars, `[[`, i)
+    if (length(unique(ith_chars)) == 1) {
+      prefix <- c(prefix, ith_chars[1])
+    } else {
+      break
+    }
+  }
+  
+  paste0(prefix, collapse = "")
+}
+
+getNonNormalizedDataFromGEO <- function(gseID, suffix="non_normalized") {
   downloadDirPath = paste0(tempdir(), "/", gseID)
-  
+
   if (!dir.exists(downloadDirPath)) {
     dir.create(downloadDirPath)
   }
   
-  downloadFilePath = paste0(downloadDirPath, "/data.txt.gz")
+  nonNormalizedURL = paste0("https://www.ncbi.nlm.nih.gov/geo/download/?acc=", gseID, "&format=file&file=", gseID, "_", suffix, ".txt.gz")
+
+  downloadFilePath = paste0(downloadDirPath, "/", suffix, ".txt.gz")
   
   if (file.exists(downloadFilePath)) {
     return(downloadFilePath)
@@ -87,8 +328,72 @@ getNonNormalizedDataFromGEO <- function(gseID) {
     
     return(downloadFilePath)
   } else {
-    stop(paste0("A non-normalized GEO file could not be found using the standard URL for ", gseID, ". You will need to provide the URL."))
+    stop(paste0("A non-normalized GEO file could not be found using the standard URL (", nonNormalizedURL,") for ", gseID, ". You will need to provide a custom suffix."))
   }
+}
+
+getPhenoDataFromGEO <- function(gseID) {
+  metadataESet <- getGEO(gseID, GSEMatrix = TRUE)
+
+  phenotypeData <- pData(metadataESet[[1]])
+
+  colsToExclude <- c()
+  for (i in 1:ncol(phenotypeData)) {
+    colValues <- phenotypeData[,i]
+    colValues <- colValues[!is.na(colValues)]
+
+    if (length(unique(colValues)) == 1) {
+      colsToExclude <- c(colsToExclude, i)
+    }
+  }
+
+  phenotypeData <- phenotypeData[, -colsToExclude, drop = FALSE]
+
+  return(new("AnnotatedDataFrame", data = phenotypeData))
+}
+
+getAnnotationPackagePrefixFromGEO <- function(gseID, gplID=NULL) {
+  # Get the GEO series
+  gse <- getGEO(gseID, GSEMatrix = FALSE)
+
+  if (is.null(gplID)) {
+    # Extract platform(s)
+    gplIDs <- Meta(gse)$platform_id
+    
+    if (length(gplIDs) > 1) {
+      stop(paste0("Two platforms were found for ", gseID, ", so you must specify a value for gplID."))
+    }
+    
+    gplID <- gplIDs[1]
+  }
+
+  # https://bioconductor.org/packages/release/data/annotation/
+  # Platform / annotation package mapping
+  platformDF <- read.table("BeadChip_Platforms.tsv", header = TRUE, sep = "\t", quote = "\"", 
+                           stringsAsFactors = FALSE, check.names = FALSE)
+
+  annotationPackagePrefix <- platformDF[which(platformDF$Accession == gplID),]$AnnotationPackagePrefix
+  
+  print(annotationPackagePrefix)
+}
+
+getProbeSequences <- function(exprMatrix, platformPackagePrefix = NULL, gseID = NULL) {
+  if (is.null(platformPackagePrefix) & is.null(gseID)) {
+    message("When invoking the getProbeSequences function, you must specify a value for either platformPackagePrefix or gseID.")
+    stop()
+  }
+  
+  if (is.null(platformPackagePrefix)) {
+    annotationPackagePrefix <- getAnnotationPackagePrefixFromGEO(gseID)
+  }
+  
+  platformPackageName <- paste0(platformPackagePrefix, ".db")
+  library(platformPackageName, character.only=TRUE)
+
+  probeSequenceRef <- getRefInfo(platformPackagePrefix, "PROBESEQUENCE")
+  rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
+
+  return(probeSequenceRef[rownames(exprMatrix), 2])
 }
 
 backgroundCorrect <- function(signalExprData, controlExprData=NULL, signalPValueData=NULL)

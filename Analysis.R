@@ -1,13 +1,9 @@
-# if (!require("BiocManager", quietly = TRUE))
-#   install.packages("BiocManager")
-# 
-# BiocManager::install(c("broom", "doParallel", "limma", "oligo", "tidyverse"))
+# install.packages("ppcor")
+# install.packages("tidyverse")
 
-#library(broom)
-library(doParallel)
-library(limma)
-library(oligo)
+library(ppcor)
 library(tidyverse)
+
 
 #####################################################################
 # Defining functions
@@ -35,9 +31,8 @@ compute.gc <- function(probe.sequences, digits=2)
 {
   stopifnot(is.character(probe.sequences))
 
-  splitted.seqs <- strsplit(toupper(probe.sequences),split="")
-  round(sapply(splitted.seqs, function(x) length(grep("[GC]",x)))/
-  listLen(splitted.seqs), digits=digits)
+  splitted.seqs <- strsplit(toupper(probe.sequences), split="")
+  round(sapply(splitted.seqs, function(x) length(grep("[GC]", x))) / listLen(splitted.seqs), digits=digits)
 }
 
 averageAcrossReplicates <- function(data, log2Transform = FALSE) {
@@ -122,6 +117,7 @@ if (!file.exists(zipFilePath)) {
 sampleDataFilePath <- unz(zipFilePath, "SampleProbeProfile.txt")
 controlDataFilePath <- unz(zipFilePath, "ControlProbeProfile.txt")
 
+#TODO: Change this to use read.ilmn?
 sampleProbeData <- readProbeData(sampleDataFilePath, "AVG_Signal", "Detection Pval")
 controlProbeData <- readProbeData(controlDataFilePath, "AVG_Signal", "Detection Pval") # This also contains the spike-in data
 
@@ -327,8 +323,149 @@ if (!file.exists(paramTuningOutFilePath))
 # Evaluate "real-world" datasets
 #####################################################################
 
-filePath <- getNonNormalizedDataFromGEO("GSE31909")
-normalized <- normalizeBeadChipData(filePath)
+calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
+  probeGCProportion <- compute.gc(probeSequences)
+  
+  # Compute mean correlation between two sample sets
+  getMeanCorrelation <- function(samples1, samples2) {
+    corVals <- c()
+    for (s1 in samples1) {
+      for (s2 in samples2) {
+        if (s1 != s2) {
+          corMethod = "spearman"
+
+          print(s1)
+          corValue <- pcor.test(dataMatrix[,s1], dataMatrix[,s2], probeGCProportion, method=corMethod)$estimate
+          corVals <- c(corVals, corValue)
+        }
+      }
+    }
+
+    return(mean(corVals))
+  }
+  
+  result <- NULL
+  groupNames <- names(groupList)
+  
+  for (i in seq_along(groupNames)) {
+    for (j in seq_along(groupNames)) {
+      groupsSorted <- sort(c(groupNames[i], groupNames[j]))
+      
+      group1 <- groupsSorted[1]
+      group2 <- groupsSorted[2]
+
+      if (!is.null(result)) {
+        alreadyDone <- dplyr::filter(result, Group1 == group1 & Group2 == group2) %>%
+          nrow() %>%
+          `>`(0)
+        
+        if (alreadyDone) {
+          next
+        }
+      }
+
+      samples1 <- groupList[[group1]]
+      samples2 <- groupList[[group2]]
+      
+      meanCorr <- getMeanCorrelation(samples1, samples2)
+      comparisonType <- if (group1 == group2) "within-group" else "between-group"
+
+      row <- tibble(Group1 = group1, Group2 = group2, Mean_Correlation = meanCorr, Comparison_Type = comparisonType)
+      if (is.null(result)) {
+        result <- row
+      } else {
+        result <- bind_rows(result, row)
+      }
+    }
+  }
+  
+  return(result)
+}
+
+############################################################
+gseID <- "GSE31909"
+############################################################
+eSet <- normalizeBeadChipDataFromGEO("GSE31909")
+x <- getPhenoDataFromGEO("GSE31909")
+stop("got here")
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                    adjustBackground=FALSE,
+                                    useSCAN=FALSE, convThreshold=0.5,
+                                    numCores=4,
+                                    verbose=TRUE)
+
+#TODO: Rename expression columns based on metadata.
+#      Put things in an ExpressionSet object.
+#TODO: Support ArrayExpress?
+
+groups <- list(
+  HEMn = c("GSM790975", "GSM790976", "GSM790977"),
+  HEMa = c("GSM790978", "GSM790979", "GSM790980"),
+  SKMEL28 = c("GSM790981", "GSM790982", "GSM790983"),
+  LOXIMVI = c("GSM790984", "GSM790985", "GSM790986")
+)
+
+# metadata <- getPhenoFromGEO(gseID)
+
+metrics <- calculateReplicateScore(normalized, getProbeSequences(normalized, gseID), groups)
+
+############
+# GSE43692 #
+############
+
+filePath1 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep1")
+filePath2 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep2")
+filePath3 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep3")
+
+normalized <- normalizeBeadChipData(c(filePath1, filePath2, filePath3),
+                                    species="Human",
+                                    platformVersion="4",
+                                    probeIDColumn="ID_REF",
+                                    exprColumnPattern="Value ",
+                                    detectionPValueColumnPattern="Detection Pval",
+                                    adjustBackground=FALSE,
+                                    useSCAN=FALSE, convThreshold=0.5,
+                                    numCores=4, verbose=TRUE)
+
+groups <- list(
+  "Fibroblast_30 µM kaemferol_24h" = c("Value 24h30K_1", "Value 24h30K_2", "Value 24h30K_3"),
+  "Fibroblast_60 µM kaemferol_24h" = c("Value 24h60K_1", "Value 24h60K_2", "Value 24h60K_3"),
+  "Fibroblast_100 µM kaemferol _24h" = c("Value 24h100K_1", "Value 24h100K_2", "Value 24h100K_3"),
+  "Fibroblast_30 µM kaemferol + 30 µM genistein_24h" = c("Value 24h30K/G_1", "Value 24h30K/G_2", "Value 24hK/G_3"),
+  "Fibroblast_60 µM daidzein_24h" = c("Value 24h60D_1", "Value 24h60D_2", "Value 24h60D_3"),
+  "Fibroblast_100 µM daidzein_24h" = c("Value 24h100D_1", "Value 24h100D_2", "Value 24h100D_3"),
+  "Fibroblast_30 µM daidzein + 30 µM genistein_24h" = c("Value 24h30D/G_1", "Value 24h30D/G_2", "Value 24h30D/G_3"),
+  "Fibroblast_0.05%DMSO_24h" = c("Value 24hDMSO_1", "Value 24hDMSO_2", "Value 24hDMSO_3"),
+  "Fibroblast_30 µM kaemferol_48h" = c("Value 48h30K_1", "Value 48h30K_2", "Value 48h30K_3"),
+  "Fibroblast_60 µM kaemferol_48h" = c("Value 48h60K_1", "Value 48h60K_2", "Value 48h60K_3"),
+  "Fibroblast_100 µM kaemferol _48h" = c("Value 48h100K_1", "Value 48h100K_2", "Value 48h100K_3"),
+  "Fibroblast_30 µM kaemferol + 30 µM genistein_48h" = c("Value 48h30K/G_1", "Value 48h30K/G_2", "Value 48h30K/G_3"),
+  "Fibroblast_60 µM daidzein_48h" = c("Value 48h60D_1", "Value 48h60D_2", "Value 48h60D_3"),
+  "Fibroblast_100 µM daidzein_48h" = c("Value 48h100D_1", "Value 48h100D_2", "Value 48h100D_3"),
+  "Fibroblast_30 µM daidzein + 30 µM genistein_48h" = c("Value 48h30D/G_1", "Value 48h30D/G_2", "Value 48h30D/GK_3"),
+  "Fibroblast_0.05%DMSO_48h" = c("Value 48hDMSO_1", "Value 48hDMSO_2", "Value 48hDMSO_3")
+)
+
+metrics <- calculateReplicateScore(normalized, getProbeSequences(normalized, annotationPackagePrefix), groups)
+
+#############
+# GSE169568 #
+#############
+
+filePath <- getNonNormalizedDataFromGEO("GSE169568", suffix="non-normalized")
+
+normalized <- normalizeBeadChipData(filePath,
+                                    fileFieldDelimiter="",
+                                    species="Human",
+                                    platformVersion="4",
+                                    probeIDColumn="ID_REF",
+                                    exprColumnPattern="SAMPLE ",
+                                    detectionPValueColumnPattern="Detection Pval",
+                                    adjustBackground=FALSE,
+                                    useSCAN=FALSE, convThreshold=0.5,
+                                    numCores=4, 
+                                    verbose=TRUE)
 
 #####################################################################
 # Plot the summarized results of parameter evaluation
@@ -408,7 +545,6 @@ stop("got to here...................")
 #   ylab("Combined rank (lower is better)") +
 #   theme_bw()
 
-# TODO: Move normalizeBeadChip.R logic to IllumiSCAN.R.
 # TODO: Assess consistency of replicates: GSE31909, GSE43692, GSE169568
 #         https://www.ncbi.nlm.nih.gov/geo/browse/?view=series&display=500&platform=10558&zsort=date
 # TODO: For now, we just picked one of the parameter combinations below. Need to compare them?
