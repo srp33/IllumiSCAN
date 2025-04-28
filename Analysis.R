@@ -4,7 +4,6 @@
 library(ppcor)
 library(tidyverse)
 
-
 #####################################################################
 # Defining functions
 #####################################################################
@@ -15,14 +14,14 @@ readProbeData <- function(filePath, signalColumnSuffix, pValueColumnSuffix)
 {
   # Read probe data
   probeData <- suppressMessages(read_tsv(filePath))
-
+  
   # Keep columns of interest
   exprData <- probeData[,c(2, which(grepl(paste(signalColumnSuffix, "$", sep=""), colnames(probeData)))), drop=FALSE]
   colnames(exprData) <- sub(paste(".", signalColumnSuffix, sep=""), "", colnames(exprData))
-
+  
   pValueData <- probeData[,c(2, which(grepl(paste(pValueColumnSuffix, "$", sep=""), colnames(probeData)))), drop=FALSE]
   colnames(pValueData) <- sub(paste(".", pValueColumnSuffix, sep=""), "", colnames(pValueData))
-
+  
   return(list(exprData=exprData, pValueData=pValueData))
 }
 
@@ -30,7 +29,7 @@ readProbeData <- function(filePath, signalColumnSuffix, pValueColumnSuffix)
 compute.gc <- function(probe.sequences, digits=2)
 {
   stopifnot(is.character(probe.sequences))
-
+  
   splitted.seqs <- strsplit(toupper(probe.sequences), split="")
   round(sapply(splitted.seqs, function(x) length(grep("[GC]", x))) / listLen(splitted.seqs), digits=digits)
 }
@@ -51,18 +50,18 @@ plotGC <- function(exprData, signalProbeMeta, outFilePath, ylabSuffix="") {
     dplyr::summarize(rho = cor(GC_Proportion, Value, method = "spearman")) %>%
     pull(rho) %>%
     mean()
-
+  
   set.seed(0)
   
   p <- inner_join(exprData, signalProbeMeta, by = "ProbeID") %>%
     ggplot(aes(x = GC_Bin, y = Value)) +
-      geom_boxplot(outlier.shape = NA) +
-      # geom_jitter(aes(color = SpikeConc), alpha = 0.01, size = 0.5) +
-      annotate("text", x = Inf, y = Inf, label = paste0("Mean rho = ", round(mean_rho, 3)), hjust = 1.5, vjust = 3, color = "red", size = 4) +
-      xlab("Proportion G/C nucleotides") +
-      ylab(paste0("Expression value", ylabSuffix)) +
-      theme_bw(base_size = 14)
-
+    geom_boxplot(outlier.shape = NA) +
+    # geom_jitter(aes(color = SpikeConc), alpha = 0.01, size = 0.5) +
+    annotate("text", x = Inf, y = Inf, label = paste0("Mean rho = ", round(mean_rho, 3)), hjust = 1.5, vjust = 3, color = "red", size = 4) +
+    xlab("Proportion G/C nucleotides") +
+    ylab(paste0("Expression value", ylabSuffix)) +
+    theme_bw(base_size = 14)
+  
   print(p) %>%
     suppressWarnings()
   
@@ -73,12 +72,12 @@ plotGC <- function(exprData, signalProbeMeta, outFilePath, ylabSuffix="") {
 
 plotConcentrations <- function(normData, outFilePath, ylabSuffix="") {
   evalData <- inner_join(normData, spikeInAnnotationData)
-
+  
   mean_rho <- dplyr::group_by(evalData, ProbeID) %>%
     dplyr::summarize(rho = cor(SpikeConc, Value, method = "spearman")) %>%
     pull(rho) %>%
     mean()
-
+  
   set.seed(0)
   
   p <- mutate(evalData, SpikeConc = factor(SpikeConc, levels = spikeLevels)) %>%
@@ -89,10 +88,10 @@ plotConcentrations <- function(normData, outFilePath, ylabSuffix="") {
     xlab("Spike-in concentration") +
     ylab(paste0("Expression value", ylabSuffix)) +
     theme_bw(base_size = 14)
-
+  
   print(p) %>%
     suppressWarnings()
-
+  
   ggsave(outFilePath, width = 8, height = 6)
   
   return(mean_rho)
@@ -240,12 +239,12 @@ if (!file.exists(paramTuningOutFilePath))
     backgroundCorrectOption <- paramCombo[1]
     normalizationOption <- paramCombo[2]
     scanOption <- paramCombo[3]
-
+    
     outFilePrefix <- paste0("Outputs/", paste(paramCombo, collapse="_"))
     normalizedFilePath <- paste0(outFilePrefix, "_Data.tsv.gz")
-
+    
     probeSequences <- signalExprData$Sequence
-
+    
     if (!file.exists(normalizedFilePath)) {
       if (backgroundCorrectOption == "none") {
         normData <- signalExprMatrix
@@ -257,13 +256,13 @@ if (!file.exists(paramTuningOutFilePath))
           normData <- backgroundCorrect(signalExprMatrix, signalPValueData=signalPValueMatrix)
         }
       }
-  
+      
       # This is supposed to be done with raw intensities (I assume background correction is okay).    
       if (normalizationOption == "vsn") {
         normData <- normalizeVSN(normData)
         normData <- 2^normData # Reverse the log2 transformation
       }
-  
+      
       if (scanOption %in% c("SCAN", "UPC", "SCANnocontrols")) {
         # It is possible backgroundCorrection uses controls but SCAN does not.
         # Also, when backgroundCorrection = "none", we should get approximately
@@ -275,22 +274,22 @@ if (!file.exists(paramTuningOutFilePath))
           normData2 <- normData
           probeSequences <- probeSequences
         }
-
+        
         normData <- scanNorm(normData2, probeSequences2, asUPC = scanOption == "UPC", verbose = TRUE)
         #convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, normalizationType=normalizationType, quantileNormalize=quantileNormalize, numCores=numCores, verbose=verbose
       }
-  
+      
       if (normalizationOption == "quantile") {
         normData <- normalizeBetweenArrays(normData, method = "quantile")
       }
       
       # Remove control probes if they are there.
       normData <- normData[1:nrow(signalExprMatrix),]
-  
+      
       if (scanOption != "UPC") {
         normData <- log2(normData)
       }
-  
+      
       normData <- as.data.frame(normData) %>%
         rownames_to_column("ProbeID") %>%
         mutate(ProbeID = as.integer(str_replace(ProbeID, "^X", ""))) %>%
@@ -298,16 +297,16 @@ if (!file.exists(paramTuningOutFilePath))
       
       write_tsv(normData, normalizedFilePath)
     }
-
+    
     normData <- read_tsv(normalizedFilePath)
-  
+    
     gc_rho <- plotGC(normData, signalExprMeta, paste0(outFilePrefix, "_GC.pdf"))
     conc_rho <- plotConcentrations(normData, paste0(outFilePrefix, "_Spike.pdf"))
     stats <- getStats(normData)
-
+    
     comparisonResults <- rbind(comparisonResults, c(backgroundCorrectOption, normalizationOption, scanOption, stats, gc_rho, conc_rho))
   }
-
+  
   colnames(comparisonResults) <- c("backgroundCorrection", "normalization", "scan", "min", "mean", "median", "max", "sd", "GC rho", "Spike-in concentration rho")
   comparisonResults <- as_tibble(comparisonResults) %>%
     mutate(min = as.numeric(min),
@@ -315,7 +314,7 @@ if (!file.exists(paramTuningOutFilePath))
            sd = as.numeric(sd),
            `GC rho` = as.numeric(`GC rho`),
            `Spike-in concentration rho` = as.numeric(`Spike-in concentration rho`))
-
+  
   write_tsv(comparisonResults, paramTuningOutFilePath)
 }
 
@@ -323,8 +322,8 @@ if (!file.exists(paramTuningOutFilePath))
 # Evaluate "real-world" datasets
 #####################################################################
 
-calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
-  probeGCProportion <- compute.gc(probeSequences)
+calculateReplicateScore <- function(eSet, groupList) {
+  probeGCProportion <- compute.gc(fData(eSet)$Probe_Sequence)
   
   # Compute mean correlation between two sample sets
   getMeanCorrelation <- function(samples1, samples2) {
@@ -333,14 +332,14 @@ calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
       for (s2 in samples2) {
         if (s1 != s2) {
           corMethod = "spearman"
-
+          
           print(s1)
-          corValue <- pcor.test(dataMatrix[,s1], dataMatrix[,s2], probeGCProportion, method=corMethod)$estimate
+          corValue <- pcor.test(exprs(eSet)[,s1], exprs(eSet)[,s2], probeGCProportion, method=corMethod)$estimate
           corVals <- c(corVals, corValue)
         }
       }
     }
-
+    
     return(mean(corVals))
   }
   
@@ -353,7 +352,7 @@ calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
       
       group1 <- groupsSorted[1]
       group2 <- groupsSorted[2]
-
+      
       if (!is.null(result)) {
         alreadyDone <- dplyr::filter(result, Group1 == group1 & Group2 == group2) %>%
           nrow() %>%
@@ -363,13 +362,13 @@ calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
           next
         }
       }
-
+      
       samples1 <- groupList[[group1]]
       samples2 <- groupList[[group2]]
       
       meanCorr <- getMeanCorrelation(samples1, samples2)
       comparisonType <- if (group1 == group2) "within-group" else "between-group"
-
+      
       row <- tibble(Group1 = group1, Group2 = group2, Mean_Correlation = meanCorr, Comparison_Type = comparisonType)
       if (is.null(result)) {
         result <- row
@@ -385,19 +384,53 @@ calculateReplicateScore <- function(dataMatrix, probeSequences, groupList) {
 ############################################################
 gseID <- "GSE31909"
 ############################################################
-eSet <- normalizeBeadChipDataFromGEO("GSE31909")
-x <- getPhenoDataFromGEO("GSE31909")
-stop("got here")
 
 normalized <- normalizeBeadChipDataFromGEO(gseID,
-                                    adjustBackground=FALSE,
-                                    useSCAN=FALSE, convThreshold=0.5,
-                                    numCores=4,
-                                    verbose=TRUE)
+                                           adjustBackground=FALSE,
+                                           useSCAN=FALSE,
+                                           quantileNormalize=FALSE,
+                                           log2Transform=FALSE,
+                                           verbose=TRUE)
 
-#TODO: Rename expression columns based on metadata.
-#      Put things in an ExpressionSet object.
-#TODO: Support ArrayExpress?
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=FALSE,
+                                           useSCAN=FALSE,
+                                           quantileNormalize=FALSE,
+                                           log2Transform=TRUE,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           quantileNormalize=FALSE,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           quantileNormalize=TRUE,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=FALSE,
+                                           useSCAN=TRUE, scanConvThreshold=0.5,
+                                           quantileNormalize=FALSE,
+                                           numCores=4,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=FALSE,
+                                           useSCAN=TRUE, scanConvThreshold=0.5,
+                                           quantileNormalize=TRUE,
+                                           numCores=4,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=TRUE, scanConvThreshold=0.5,
+                                           quantileNormalize=TRUE,
+                                           numCores=4,
+                                           verbose=TRUE)
 
 groups <- list(
   HEMn = c("GSM790975", "GSM790976", "GSM790977"),
@@ -406,66 +439,90 @@ groups <- list(
   LOXIMVI = c("GSM790984", "GSM790985", "GSM790986")
 )
 
-# metadata <- getPhenoFromGEO(gseID)
+# To assess within-group consistency while accounting for overall gene expression variability, we calculated the Within-to-Total Variability Ratio (WTVR) for each gene. For each normalization method, we first computed the standard deviation of expression values for each gene within each biological group (i.e., set of replicates). We then averaged the within-group standard deviations across the four groups to obtain a single within-group variability estimate per gene. To contextualize this variability, we divided the averaged within-group standard deviation by the standard deviation of the same gene across all samples. This ratio reflects the proportion of a gene’s total variability that is attributable to variation within biological replicates. Lower WTVR values indicate greater consistency among replicates relative to the gene’s overall variation. We used the distribution of WTVR values across all genes to compare the effectiveness of each normalization method in reducing technical noise while preserving biological structure.
+calculateRelativeVariability <- function(exprMatrix, groups) {
+  allSdRatios <- c()
 
-metrics <- calculateReplicateScore(normalized, getProbeSequences(normalized, gseID), groups)
+  for (group in names(groups)) {
+    groupSamples <- groups[[group]]
 
-############
-# GSE43692 #
-############
+    overallSDs <- apply(exprMatrix, 1, sd)
+    groupSDs <- apply(exprMatrix[,groupSamples], 1, sd)
+    
+    sdRatios <- groupSDs / overallSDs
+    sdRatios <- sdRatios[!is.nan(sdRatios)]
+    
+    allSdRatios <- c(allSdRatios, mean(sdRatios))
+  }
 
-filePath1 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep1")
-filePath2 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep2")
-filePath3 <- getNonNormalizedDataFromGEO("GSE43692", "non-normalized_rep3")
+  tibble(Group = names(groups), WTVR = allSdRatios) %>%
+    return()
+}
 
-normalized <- normalizeBeadChipData(c(filePath1, filePath2, filePath3),
-                                    species="Human",
-                                    platformVersion="4",
-                                    probeIDColumn="ID_REF",
-                                    exprColumnPattern="Value ",
-                                    detectionPValueColumnPattern="Detection Pval",
-                                    adjustBackground=FALSE,
-                                    useSCAN=FALSE, convThreshold=0.5,
-                                    numCores=4, verbose=TRUE)
+# Calculate within-group consistency
+metrics <- calculateRelativeVariability(exprs(normalized), groups)
 
-groups <- list(
-  "Fibroblast_30 µM kaemferol_24h" = c("Value 24h30K_1", "Value 24h30K_2", "Value 24h30K_3"),
-  "Fibroblast_60 µM kaemferol_24h" = c("Value 24h60K_1", "Value 24h60K_2", "Value 24h60K_3"),
-  "Fibroblast_100 µM kaemferol _24h" = c("Value 24h100K_1", "Value 24h100K_2", "Value 24h100K_3"),
-  "Fibroblast_30 µM kaemferol + 30 µM genistein_24h" = c("Value 24h30K/G_1", "Value 24h30K/G_2", "Value 24hK/G_3"),
-  "Fibroblast_60 µM daidzein_24h" = c("Value 24h60D_1", "Value 24h60D_2", "Value 24h60D_3"),
-  "Fibroblast_100 µM daidzein_24h" = c("Value 24h100D_1", "Value 24h100D_2", "Value 24h100D_3"),
-  "Fibroblast_30 µM daidzein + 30 µM genistein_24h" = c("Value 24h30D/G_1", "Value 24h30D/G_2", "Value 24h30D/G_3"),
-  "Fibroblast_0.05%DMSO_24h" = c("Value 24hDMSO_1", "Value 24hDMSO_2", "Value 24hDMSO_3"),
-  "Fibroblast_30 µM kaemferol_48h" = c("Value 48h30K_1", "Value 48h30K_2", "Value 48h30K_3"),
-  "Fibroblast_60 µM kaemferol_48h" = c("Value 48h60K_1", "Value 48h60K_2", "Value 48h60K_3"),
-  "Fibroblast_100 µM kaemferol _48h" = c("Value 48h100K_1", "Value 48h100K_2", "Value 48h100K_3"),
-  "Fibroblast_30 µM kaemferol + 30 µM genistein_48h" = c("Value 48h30K/G_1", "Value 48h30K/G_2", "Value 48h30K/G_3"),
-  "Fibroblast_60 µM daidzein_48h" = c("Value 48h60D_1", "Value 48h60D_2", "Value 48h60D_3"),
-  "Fibroblast_100 µM daidzein_48h" = c("Value 48h100D_1", "Value 48h100D_2", "Value 48h100D_3"),
-  "Fibroblast_30 µM daidzein + 30 µM genistein_48h" = c("Value 48h30D/G_1", "Value 48h30D/G_2", "Value 48h30D/GK_3"),
-  "Fibroblast_0.05%DMSO_48h" = c("Value 48hDMSO_1", "Value 48hDMSO_2", "Value 48hDMSO_3")
-)
+# Calculate within- and between group consistency
+#metrics <- calculateReplicateScore(normalized, groups)
 
-metrics <- calculateReplicateScore(normalized, getProbeSequences(normalized, annotationPackagePrefix), groups)
+#TODO: Calculate GC correlation across all genes
 
-#############
-# GSE169568 #
-#############
+############################################################
+gseID <- "GSE43692"
+############################################################
 
-filePath <- getNonNormalizedDataFromGEO("GSE169568", suffix="non-normalized")
+normalized1 <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           verbose=TRUE)
 
-normalized <- normalizeBeadChipData(filePath,
-                                    fileFieldDelimiter="",
-                                    species="Human",
-                                    platformVersion="4",
-                                    probeIDColumn="ID_REF",
-                                    exprColumnPattern="SAMPLE ",
-                                    detectionPValueColumnPattern="Detection Pval",
-                                    adjustBackground=FALSE,
-                                    useSCAN=FALSE, convThreshold=0.5,
-                                    numCores=4, 
-                                    verbose=TRUE)
+normalized2 <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=FALSE,
+                                           useSCAN=TRUE, scanConvThreshold=0.5,
+                                           numCores=4,
+                                           verbose=TRUE)
+
+# This is a good one to test having multiple non-normalized files with less-conventional names.
+#   However, it probably doesn't make sense for a benchmark comparison because the values are not fully unnormalized.
+
+############################################################
+gseID <- "GSE169568"
+############################################################
+
+# This is a large, biomarker dataset (n = 204).
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           verbose=TRUE)
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=FALSE,
+                                           useSCAN=TRUE, scanConvThreshold = 0.5,
+                                           numCores=4,
+                                           verbose=TRUE)
+
+############################################################
+gseID <- "GSE201405"
+############################################################
+
+# This one has IDAT files (n = 36) and no non-normalized files.
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           verbose=TRUE)
+
+############################################################
+gseID <- "GSE224309"
+############################################################
+
+# This one has non-normalized data in Excel (only) (n = 16).
+
+normalized <- normalizeBeadChipDataFromGEO(gseID,
+                                           nonNormalizedFilePattern="GSE224309_Raw_Data.xlsx",
+                                           adjustBackground=TRUE,
+                                           useSCAN=FALSE,
+                                           verbose=TRUE)
 
 #####################################################################
 # Plot the summarized results of parameter evaluation
@@ -547,6 +604,9 @@ stop("got to here...................")
 
 # TODO: Assess consistency of replicates: GSE31909, GSE43692, GSE169568
 #         https://www.ncbi.nlm.nih.gov/geo/browse/?view=series&display=500&platform=10558&zsort=date
+#       Add quantile normalization?
+# TODO: Support IDAT files in GEO.
+# TODO: Use arrayQualityMetrics to assess quality and add quality findings to the phenoData.
 # TODO: For now, we just picked one of the parameter combinations below. Need to compare them?
 # TODO: Rework the above graphs.
 # TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)

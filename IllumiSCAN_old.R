@@ -1,5 +1,4 @@
 scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL, controlExprData=NULL, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
-scanNorm <- function(signalExprData, signalProbeSequences, signalPValueData=NULL, controlExprData=NULL, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE)
 {
   #############################################
   # Check parameters
