@@ -12,8 +12,16 @@ library(limma)
 library(oligo)
 library(readxl)
 
-# normalizeBeadChipDataFromGEO <- function(gseID, nonNormalizedDataFilePaths=NULL, nonNormalizedFileSuffix="non_normalized", nonNormalizedFileFieldDelimiter="\t", probeIDColumn=NULL, exprColumnPattern=NULL, detectionPValueColumnPattern=NULL, adjustBackground=TRUE, useSCAN=TRUE, scanConvThreshold=0.5, numCores=1, verbose=FALSE) {
-normalizeBeadChipDataFromGEO <- function(gseID, nonNormalizedFilePattern="non.*normalized.*\\.txt\\.gz$", adjustBackground=TRUE, useSCAN=TRUE, scanConvThreshold=0.5, quantileNormalize=TRUE, log2Transform=TRUE, numCores=1, verbose=FALSE) {
+normalizeBeadChipDataFromGEO <- function(gseID,
+                                         nonNormalizedFilePattern="non.*normalized.*\\.txt\\.gz$",
+                                         exprColumnPattern=NULL,
+                                         adjustBackground=FALSE,
+                                         useSCAN=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
+                                         vsnNormalize=FALSE,
+                                         quantileNormalize=FALSE,
+                                         log2Transform=FALSE,
+                                         numCores=1,
+                                         verbose=FALSE) {
   supplementaryFilePaths <- getSupplementaryFilesFromGEO(gseID)
   nonNormalizedFilePaths <- supplementaryFilePaths[grepl(nonNormalizedFilePattern, supplementaryFilePaths, ignore.case = TRUE)]
 
@@ -23,7 +31,6 @@ normalizeBeadChipDataFromGEO <- function(gseID, nonNormalizedFilePattern="non.*n
       f <- nonNormalizedFilePaths[i]
 
       if (grepl("\\.xlsx?$", f)) {
-        stop("got here")
         excelData <- read_excel(f)
         write.table(excelData, paste0(f, ".tsv"), sep="\t", quote=FALSE, row.names=FALSE, col.names = TRUE, na = "\"\"")
         nonNormalizedFilePaths[i] <- paste0(f, ".tsv")
@@ -31,7 +38,7 @@ normalizeBeadChipDataFromGEO <- function(gseID, nonNormalizedFilePattern="non.*n
       }
     }
 
-    nonNormList <- readNonNormalizedData(nonNormalizedFilePaths)
+    nonNormList <- readNonNormalizedData(nonNormalizedFilePaths, exprColumnPattern = exprColumnPattern)
   } else {
     nonNormList <- retrieveFromIDAT(gseID, supplementaryFilePaths)
   }
@@ -41,7 +48,7 @@ normalizeBeadChipDataFromGEO <- function(gseID, nonNormalizedFilePattern="non.*n
   exprMatrix <- normalizeBeadChipData(nonNormList,
                                       annotationPackagePrefix,
                                       adjustBackground=adjustBackground,
-                                      useSCAN=useSCAN, scanConvThreshold=scanConvThreshold,
+                                      useSCAN=useSCAN, scanConvThreshold=scanConvThreshold, scanIntervalN=scanIntervalN, scanBinsize=scanBinsize, scanNbins=scanNbins, scanUseControls=scanUseControls,
                                       numCores=numCores,
                                       verbose=verbose)
 
@@ -96,7 +103,7 @@ getSupplementaryFilesFromGEO <- function(gseID) {
 readNonNormalizedData <- function(filePaths, probeIDColumn=NULL, detectionPValueColumnPattern=NULL, exprColumnPattern=NULL, verbose=FALSE) {
   # Infer the file field delimiter
   delimiter <- inferFileDelimiter(filePaths[1])
-  
+
   # Read the first line to find the column names
   originalColnames <- getColumnNames(filePaths, delimiter)
 
@@ -128,18 +135,20 @@ readNonNormalizedData <- function(filePaths, probeIDColumn=NULL, detectionPValue
       stop()
     }
   }
-  
+
   # Auto-detect exprColumnPattern.
   if (is.null(exprColumnPattern)) {
     if (verbose) {
       message(paste0("Auto-detecting exprColumnPattern."))
     }
 
-    candidateExprColnames <- originalColnames[grep("signal", originalColnames, ignore.case = TRUE)]
-    
+    candidateExprColnames <- originalColnames[grep("avg_signal", originalColnames, ignore.case = TRUE)]
+
     if (length(candidateExprColnames) == 0) {
-      detectionPIndices <- grep(detectionPValueColumnPattern, originalColnames, ignore.case = TRUE)
-      candidateExprColnames <- detectionPIndices - 1
+      message(paste0("No value was specified for the exprColumnPattern parameter, and a pattern could not be auto-detected. You can view the downloaded file at ", filePaths[1], "."))
+      stop()
+      # detectionPIndices <- grep(detectionPValueColumnPattern, originalColnames, ignore.case = TRUE)
+      # candidateExprColnames <- detectionPIndices - 1
     }
     
     exprColumnPattern <- findLongestCommonPrefix(candidateExprColnames)
@@ -154,27 +163,8 @@ readNonNormalizedData <- function(filePaths, probeIDColumn=NULL, detectionPValue
     }
   }
 
-print(probeIDColumn)
-print(candidatePValueColnames)
-print(candidateExprColnames)
-print(detectionPValueColumnPattern)
-print(exprColumnPattern)
-print(filePaths)
-print(delimiter)
-
-filePaths = "/var/folders/5y/bv281l6d0m90njln4ywknhjm0000gq/T//Rtmp5yHeDY/GSE224309/GSE224309_Raw_Data.xlsx.tsv"
-probeIDColumn = "PROBE_ID"
-exprColumnPattern = "AVG_Signal"
-detectionPValueColumnPattern = "Detection Pval"
-delimiter = "\t"
-
-  tmpFile <- read.table(filePaths[1], header = TRUE, sep = delimiter, fill = TRUE, check.names = FALSE)
-  tmpFile <- read.columns(filePaths[1], required.col=NULL, text.to.search="", sep="\t", quote="\"", skip=0, fill=TRUE, blank.lines.skip=TRUE, comment.char="", allowEscapes=FALSE)
-  #tmpFile <- read.table(filePaths[1], header = TRUE, sep = delimiter, check.names = FALSE)
-  nonNormList <- read.ilmn(filePaths, probeid = probeIDColumn, expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep=delimiter, text.to.search="", quote="\"")
-print("got here")
-stop()
-
+  nonNormList <- read.ilmn(filePaths, probeid = paste0("^ *", probeIDColumn, " *$"), expr = exprColumnPattern, other.columns = detectionPValueColumnPattern, sep=delimiter)
+    
   # When there are unusual delimiters, the read.ilmn function can't handle it well, and the number of columns is zero.
   # In this scenario, we read the file and then save it with tabs as delimiters. We also have to fix the column
   # names when R adds suffixes to them.
@@ -229,13 +219,20 @@ retrieveFromIDAT <- function(gseID, supplementaryFilePaths) {
 
   rownames(rgSet$E) <- rgSet$genes$Probe_Id
 
-  rgSet$other$`Detection Pval` <- detectionPValues(rgSet)
+  dp <- detectionPValues(rgSet)
+  rgSet$other <- NULL
+  rgSet$other$`Detection Pval` <- dp
   rownames(rgSet$other$`Detection Pval`) <- rgSet$genes$Probe_Id
-  
+
   return(rgSet)
 }
 
-normalizeBeadChipData <- function(nonNormList, annotationPackagePrefix, adjustBackground=TRUE, useSCAN=TRUE, scanConvThreshold=0.5, numCores=1, verbose=FALSE) {
+normalizeBeadChipData <- function(nonNormList,
+                                  annotationPackagePrefix,
+                                  adjustBackground=TRUE,
+                                  useSCAN=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
+                                  numCores=1,
+                                  verbose=FALSE) {
   platformPackageName <- paste0(annotationPackagePrefix, ".db")
   message(paste0("Loading package ", platformPackageName))
   library(platformPackageName, character.only=TRUE)
@@ -249,8 +246,9 @@ normalizeBeadChipData <- function(nonNormList, annotationPackagePrefix, adjustBa
   probesToKeep = probeQualityRef$IlluminaID[c(perfectProbes, goodProbes)]
   
   exprData <- nonNormList$E
-  detectionPValues <- nonNormList$other$`Detection Pval`
-  
+  #detectionPValues <- nonNormList$other$`Detection Pval`
+  detectionPValues <- nonNormList$other[[1]] # Sometimes the names are not consistent, but detection p-values should be the only thing in "other".
+
   probesToKeep <- intersect(probesToKeep, rownames(exprData))
   exprData <- exprData[probesToKeep,]
   detectionPValues <- detectionPValues[probesToKeep,]
@@ -263,7 +261,7 @@ normalizeBeadChipData <- function(nonNormList, annotationPackagePrefix, adjustBa
         message(paste0("There are negative values in the data, and there are relatively small positive values. This suggests that a background adjustment and/or log2 transformation have been performed. To avoid adding noise, we will not perform a background adjustment."))
       }
     } else {
-      exprData <- backgroundCorrect(exprData, signalPValueData=detectionPValues)
+      exprData <- performBackgroundCorrection(exprData, signalPValueData=detectionPValues)
     }
   }
   
@@ -283,7 +281,7 @@ normalizeBeadChipData <- function(nonNormList, annotationPackagePrefix, adjustBa
     rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
     probeSequences = probeSequenceRef[probesToKeep, 2]
     
-    exprData <- scanNorm(exprData, probeSequences, convThreshold=scanConvThreshold, numCores=numCores, verbose=verbose)
+    exprData <- scanNorm(exprData, probeSequences, convThreshold=scanConvThreshold, intervalN=scanIntervalN, binsize=scanBinsize, nbins=scanNbins, numCores=numCores, verbose=verbose)
   }
     
   return(exprData)
@@ -562,7 +560,7 @@ getAnnotationPackagePrefixFromGEO <- function(gseID, gplID=NULL) {
   return(platformDF[which(platformDF$Accession == gplID),]$AnnotationPackagePrefix)
 }
 
-backgroundCorrect <- function(signalExprData, controlExprData=NULL, signalPValueData=NULL) {
+performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, signalPValueData=NULL) {
   #############################################
   # Check parameters
   #############################################
@@ -600,15 +598,13 @@ backgroundCorrect <- function(signalExprData, controlExprData=NULL, signalPValue
   #############################################
 
   status <- rep("regular", nrow(signalExprData))
-  
+
   if (is.null(controlExprData)) { # We have detection p-values only.
     exprData <- nec(x = signalExprData, status = status, detection.p = signalPValueData)
   } else { # We have control values.
     status <- c(status, rep("negative", nrow(controlExprData)))
 
     exprData <- nec(x = rbind(signalExprData, controlExprData), status = status)
-    # signalCorrectedData <- exprData[1:nrow(signalExprData),]
-    # controlCorrectedData <- exprData[(nrow(signalExprData) + 1):(nrow(signalExprData) + nrow(controlExprData)),]
   }
   
   return(exprData)
@@ -698,45 +694,97 @@ scanNorm <- function(exprData, probeSequences, convThreshold=0.5, intervalN=1000
   return(normData)
 }
 
+# This function performs per-sample normalization of gene expression microarray data
+# using a two-component mixture model (via EM), adjusting for GC bias or similar probe-specific effects.
+# It returns either:
+#   - A normalized expression vector (after bin-wise standardization and back-transform), or
+#   - A UPC-like value (probability of being "active") if `asUPC = TRUE`.
+#
+# Inputs:
+# - sampleIndex: index of the sample (for logging/debugging purposes).
+# - my: raw expression vector for the current sample (1 value per probe).
+# - mx: design matrix containing features per probe (e.g., GC content).
+# - convThreshold: convergence threshold for the EM algorithm.
+# - intervalN: number of evenly spaced probes to sample for EM fitting.
+# - binsize: number of probes per bin for normalization.
+# - nbins: number of bins to use for estimating variance profiles.
+# - maxIt: maximum iterations for the EM algorithm.
+# - asUPC: if TRUE, return posterior probability of being "active" (from EM); if FALSE, return normalized values.
+# - verbose: if TRUE, print diagnostic messages.
 scanNormVector <- function(sampleIndex, my, mx, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, verbose) {
-  # Make an adjustment to accommodate any zero values (should happen rarely).
+  # Add +1 to all expression values to avoid log(0); should be rare.
   my <- my + 1
-
-  # Log transform the data, if needed.
-  my = doLog2(my)
-
-  # Add a tiny amount of random noise
+  
+  # Apply log2 transformation to the expression data.
+  my <- doLog2(my)
+  
+  # Add small noise to break ties and avoid instability in downstream steps.
   set.seed(0)
-  noise = rnorm(length(my)) / 10000000
-  my = my + noise
+  noise <- rnorm(length(my)) / 1e7
+  my <- my + noise
   
-  nGroups = floor(length(my) / binsize)
-  samplingProbeIndices = sampleProbeIndices(total=length(my), intervalN=intervalN, verbose=verbose)
+  # Decide how many bins will be used for normalization.
+  nGroups <- floor(length(my) / binsize)
   
-  mixResult = EM_vMix(sampleIndex, y=my[samplingProbeIndices], X=mx[samplingProbeIndices,], nbins=nbins, convThreshold=convThreshold, maxIt=maxIt, verbose=verbose)
+  # Select a subset of probes evenly across the array for model fitting.
+  samplingProbeIndices <- sampleProbeIndices(total = length(my), intervalN = intervalN, verbose = verbose)
   
-  m1 = mx %*% mixResult$b1
-  m2 = mx %*% mixResult$b2
+  # Fit a 2-component mixture model using the sampled probes.
+  mixResult <- EM_vMix(
+    sampleIndex,
+    y = my[samplingProbeIndices],
+    X = mx[samplingProbeIndices, ],
+    nbins = nbins,
+    convThreshold = convThreshold,
+    maxIt = maxIt,
+    verbose = verbose
+  )
   
-  index = order(m1)
-  y_norm = rep(0, length(my))
-  for (i in 1:nGroups)
-  {
-    tmp = index[(binsize * i):min(binsize * i + binsize, length(my))]
-    tmpSd = as.vector(sig(y=my[tmp], m=m1[tmp], verbose=verbose))
-    y_norm[tmp] = ((my[tmp] - m1[tmp]) / tmpSd)
+  # Compute the fitted values from both components for all probes.
+  m1 <- mx %*% mixResult$b1  # Background component
+  m2 <- mx %*% mixResult$b2  # Signal component (unused here, but computed)
+  
+  # Initialize normalized output vector.
+  index <- order(m1)
+  y_norm <- rep(0, length(my))
+  
+  # Standardize expression values within bins based on fitted background model.
+  for (i in 1:nGroups) {
+    start_idx <- (binsize * (i - 1)) + 1
+    end_idx <- min(binsize * i, length(my))
+    tmp <- index[start_idx:end_idx]
+    
+    # Estimate standard deviation in the bin based on residuals from m1.
+    tmpSd <- as.vector(sig(y = my[tmp], m = m1[tmp], verbose = verbose))
+    
+    # Standardize expression relative to background model.
+    y_norm[tmp] <- (my[tmp] - m1[tmp]) / tmpSd
   }
   
-  bin = assign_bin(y=m1, nbins=nbins, verbose=verbose)
-  gam = vresp(y=my, X=mx, bin=bin, p=mixResult$p, b1=mixResult$b1, s1=mixResult$s1, b2=mixResult$b2, s2=mixResult$s2, verbose=verbose)[,2]
+  # Recompute bin assignments based on m1.
+  bin <- assign_bin(y = m1, nbins = nbins, verbose = verbose)
+
+  # Compute posterior probabilities (gam) from EM model for all probes.
+  # Only keep the second column, which represents "signal" probability.
+  gam <- vresp(
+    y = my,
+    X = mx,
+    bin = bin,
+    p = mixResult$p,
+    b1 = mixResult$b1,
+    s1 = mixResult$s1,
+    b2 = mixResult$b2,
+    s2 = mixResult$s2,
+    verbose = verbose
+  )[, 2]
+
+  y_norm <- round(y_norm, 8)
+  y_norm <- 2^y_norm  # Reverse the log2 transformation.
   
-  y_norm = round(y_norm, 8)
-  y_norm = 2^y_norm # Reverse log2 transformation.
+  gam <- round(gam, 8)
   
-  gam = round(gam, 8)
-  
-  if (asUPC)
-  {
+  # Return either UPC-like probabilities or normalized values.
+  if (asUPC) {
     return(gam)
   } else {
     return(y_norm)
@@ -758,168 +806,287 @@ doLog2 <- function(x) {
   return(x)
 }
 
-# reverseLog2 <- function(x) {
-#   
-# }
-
-buildDesignMatrix = function(seqs, verbose=FALSE) {
-  mx = sequenceDesignMatrix(seqs)
+buildDesignMatrix <- function(seqs, verbose = FALSE) {
+  # Generate the initial one-hot encoded design matrix from sequences
+  # This matrix encodes the presence of A, C, G, and T at each position
+  mx <- sequenceDesignMatrix(seqs)
   
-  numA = apply(mx[,which(grepl("^A_", colnames(mx)))], 1, sum)
-  numC = apply(mx[,which(grepl("^C_", colnames(mx)))], 1, sum)
-  numG = apply(mx[,which(grepl("^G_", colnames(mx)))], 1, sum)
-  numT = 60 - (numA + numC + numG)
+  # Estimate the sequence length based on the number of one-hot encoded columns
+  # Assumes four columns per base position (A_, C_, G_, T_)
+  seq_length <- ncol(mx) / 4
   
-  mx = cbind(numT, mx, numA^2, numC^2, numG^2, numT^2)
-  #mx = cbind(numT, mx, as.integer(numA^2), as.integer(numC^2), as.integer(numG^2), as.integer(numT^2))
-  #mx = cbind(numA, numC, numG, numA^2, numC^2, numG^2, numT^2)
-  #mx = cbind(numA, numC, numG)
-  mx = apply(mx, 2, as.integer)  
+  # Compute the total counts of each nucleotide across each sequence
+  numA <- rowSums(mx[, grepl("^A_", colnames(mx))])
+  numC <- rowSums(mx[, grepl("^C_", colnames(mx))])
+  numG <- rowSums(mx[, grepl("^G_", colnames(mx))])
   
-  return(mx)
+  # Derive the count of T by subtracting A + C + G from total length
+  numT <- seq_length - (numA + numC + numG)
+  
+  # Combine features into a final matrix:
+  # - numT as a separate feature
+  # - the full one-hot encoded matrix (mx)
+  # - squared counts of A, C, G, and T to capture potential nonlinear effects
+  features <- cbind(
+    numT,
+    mx,
+    numA^2,
+    numC^2,
+    numG^2,
+    numT^2
+  )
+  
+  # Convert all matrix entries to integer type for efficiency and compatibility
+  storage.mode(features) <- "integer"
+  
+  # If requested, print summary information about the resulting matrix
+  if (verbose) {
+    message("Built design matrix with ", nrow(features), " sequences and ", ncol(features), " features.")
+  }
+  
+  # Return the complete feature matrix for modeling
+  return(features)
 }
 
-sampleProbeIndices = function(total, intervalN, verbose=FALSE) {
-  interval = floor(total / intervalN)
+# This function returns a set of evenly spaced probe indices for sampling.
+# It is useful in scenarios (e.g., mixture model initialization or diagnostics)
+# where you want to work with a subset of probes that are representative of the
+# full dataset, rather than using all probes, for efficiency.
+sampleProbeIndices <- function(total, intervalN, verbose = FALSE) {
+  # Compute the sampling interval: how many steps to skip between indices
+  interval <- floor(total / intervalN)
+  
+  # Ensure the interval is at least 1 to avoid infinite loops or zero-length sequences
   if (interval <= 1)
-    interval = 1
+    interval <- 1
   
-  seq(1, total, interval)
+  # Generate a sequence of indices from 1 to total using the computed interval
+  return(seq(1, total, interval))
 }
 
-EM_vMix = function(sampleIndex, y, X, nbins, convThreshold=.01, maxIt=100, verbose=FALSE) {
+# EM_vMix:
+# This function performs Expectation-Maximization (EM) for a two-component mixture model,
+# where each component models gene expression as a linear regression with bin-specific variance.
+# The function estimates mixture proportions (p), regression coefficients (b1, b2),
+# and bin-specific variances (s1, s2) for each component.
+EM_vMix <- function(sampleIndex, y, X, nbins, convThreshold = 0.01, maxIt = 100, verbose = FALSE) {
   if (verbose)
     message(paste0("Starting EM for sample ", sampleIndex))
+  
+  # Initialize responsibilities using a median-based split.
+  quan <- sort(y)[floor(0.5 * length(y)) - 1]
+  gam <- cbind(as.integer(y <= quan), as.integer(y > quan))
+  
+  # Initialize mixture proportions.
+  p <- apply(gam, 2, mean)
+  
+  # Initialize regression parameters using weighted least squares.
+  b1 <- mybeta(y = y, X = X, gam = gam[,1], verbose = verbose)
+  b2 <- mybeta(y = y, X = X, gam = gam[,2], verbose = verbose)
+  
+  # Assign bins to observations for variance modeling.
+  bin <- assign_bin(y = y, nbins = nbins, verbose = verbose)
+  
+  # Initialize bin-specific variances for both components.
+  s1 <- vsig(y = y, X = X, b = b1, gam = gam[,1], bin = bin, nbins = nbins, verbose = verbose)
+  s2 <- vsig(y = y, X = X, b = b2, gam = gam[,2], bin = bin, nbins = nbins, verbose = verbose)
+  
+  # Store initial parameter vector for convergence checking.
+  theta_old <- c(p, b1, s1, b2, s2)
+  
+  it <- 0
+  conv <- 1e6  # Arbitrarily large initial value to start the loop
+  
+  # EM loop: iterate until convergence or maximum iterations reached.
+  while (conv > convThreshold & it < maxIt) {
+    # E-step: compute responsibilities (posterior probabilities).
+    gam <- vresp(y = y, X = X, bin = bin, p = p, b1 = b1, s1 = s1, b2 = b2, s2 = s2, verbose = verbose)
 
-  quan = sort(y)[floor(0.5 * length(y)) - 1]
-  gam = cbind(as.integer(y <= quan), as.integer(y > quan))
-  
-  p = apply(gam, 2, mean)
-  
-  b1 = mybeta(y=y, X=X, gam=gam[,1], verbose=verbose)
-  b2 = mybeta(y=y, X=X, gam=gam[,2], verbose=verbose)
-  bin = assign_bin(y=y, nbins=nbins, verbose=verbose)
-  s1 = vsig(y=y, X=X, b=b1, gam=gam[,1], bin=bin, nbins=nbins, verbose=verbose)
-  s2 = vsig(y=y, X=X, b=b2, gam=gam[,1], bin=bin, nbins=nbins, verbose=verbose)
-  
-  theta_old=c(p, b1, s1, b2, s2)
-  
-  it = 0
-  conv = 1000000
-  
-  while (conv > convThreshold & it < maxIt)
-  {
-    # Expectation Step:
-    gam = vresp(y=y, X=X, bin=bin, p=p, b1=b1, s1=s1, b2=b2, s2=s2, verbose=verbose)
+    # M-step: update parameters using responsibilities.
+    p <- apply(gam, 2, mean)  # Update mixture proportions.
     
-    #M-Step
-    p = apply(gam, 2, mean)
-    b1 = vbeta(y=y, X=X, bin=bin, gam=gam[,1], s2=s1, prof=TRUE, verbose=verbose)
-    bin = assign_bin(y=(X %*% b1), nbins=nbins, verbose=verbose)
-    b2 = vbeta(y=y, X=X, bin=bin, gam=gam[,2], s2=s2, prof=FALSE, verbose=verbose)
-    s1 = vsig(y=y, X=X, b=b1, gam=gam[,1], bin=bin, nbins=nbins, verbose=verbose)
-    s2 = vsig(y=y, X=X, b=b2, gam=gam[,2], bin=bin, nbins=nbins, verbose=verbose)
+    # Update regression coefficients.
+    b1 <- vbeta(y = y, X = X, bin = bin, gam = gam[,1], s2 = s1, prof = TRUE, verbose = verbose)
+    bin <- assign_bin(y = (X %*% b1), nbins = nbins, verbose = verbose)  # Re-bin based on updated prediction
+    b2 <- vbeta(y = y, X = X, bin = bin, gam = gam[,2], s2 = s2, prof = FALSE, verbose = verbose)
     
-    theta = c(p, b1, s1, b2, s2)
-    conv = max(abs(theta - theta_old) / theta_old)
-    theta_old = theta
-    it = it + 1
+    # Update bin-specific variances.
+    s1 <- vsig(y = y, X = X, b = b1, gam = gam[,1], bin = bin, nbins = nbins, verbose = verbose)
+    s2 <- vsig(y = y, X = X, b = b2, gam = gam[,2], bin = bin, nbins = nbins, verbose = verbose)
+
+    # Convergence check.
+    theta <- c(p, b1, s1, b2, s2)
+    conv <- max(abs(theta - theta_old) / (abs(theta_old) + 1e-8))  # Add small constant to avoid divide-by-zero
+    theta_old <- theta
+    it <- it + 1
     
+    # Optional progress message.
     if (verbose)
       message(paste0("Attempting to converge for sample ", sampleIndex, "...iteration ", it, ", c = ", round(conv, 6)))
   }
   
-  if (verbose)
-  {
-    if (it == maxIt)
-    {
+  # Final status message.
+  if (verbose) {
+    if (it == maxIt) {
       message(paste0("Reached convergence limit for sample ", sampleIndex, "...", it, " iterations. Proportion of background probes: ", round(p[1], 6)))
     } else {
       message(paste0("Converged for sample ", sampleIndex, " in ", it, " iterations. Proportion of background probes: ", round(p[1], 6)))
     }
   }
   
-  list(p=p, b1=b1, b2=b2, s1=s1, s2=s2, bin=bin)
+  # Return all final parameter estimates.
+  return(list(p = p, b1 = b1, b2 = b2, s1 = s1, s2 = s2, bin = bin))
 }
 
-mybeta = function(y, X, gam, verbose=FALSE) {
+mybeta = function(y, X, gam, verbose = FALSE) {
+  # Take the square root of the weights (gam) for weighted least squares.
+  # This allows expressing the weighted regression as a transformed ordinary least squares.
   sqgam = sqrt(gam)
-  Xw = sqgam * X
-  yw = sqgam * y
   
+  # Apply weights to each row of X and y.
+  # Equivalent to pre-multiplying both sides of the regression by the square root of the weight matrix.
+  Xw = sqgam * X  # Element-wise multiplication; rows of X are weighted.
+  yw = sqgam * y  # Response vector also weighted.
+  
+  # Compute the weighted normal equations: (XᵗWX)⁻¹.
   z = t(Xw) %*% Xw
+  
+  # Solve for the inverse (XᵗWX)⁻¹.
   a = solve(z)
   
+  # Compute the weighted least squares estimator:
+  # β̂ = (XᵗWX)⁻¹ XᵗWy
   b = a %*% t(Xw)
-  as.numeric(b %*% yw)
+  
+  # Multiply with weighted response to get final coefficient estimates.
+  return(as.numeric(b %*% yw))  # Returns β̂ as a numeric vector
 }
 
-assign_bin = function(y, nbins, verbose=FALSE) {
-  quans = sort(y)[floor(length(y) * 1:nbins / nbins)]
-  bins = sapply(y, function(x) { sum(x>quans) }) + 1
+assign_bin <- function(y, nbins, verbose = FALSE) {
+  # Compute quantile thresholds to divide the values into nbins equal-sized bins.
+  # Use type = 1 for consistency with floor-based quantile slicing.
+  quans <- quantile(y, probs = seq(0, 1, length.out = nbins + 1), type = 1)
   
-  # if (length(table(bins)) != nbins)
-  # {
-  #   if (verbose)
-  #     message("The values were not separated into enough bins, so a tiny amount of noise will be added to make this possible.")
-  #   
-  #   set.seed(1)
-  #   noise = rnorm(length(y)) / 10000000
-  #   bins = assign_bin(y + noise, nbins, verbose)
-  # }
+  # Assign each value in y to a bin using vectorized method.
+  # This returns integers from 1 to nbins.
+  bins <- findInterval(y, quans, rightmost.closed = TRUE, all.inside = TRUE)
   
-  bins
-}
-
-vsig = function(y, X, b, gam, bin, nbins, verbose=FALSE) {
-  s2 = NULL
-  
-  for (i in 1:nbins)
-  {
-    ystar = y[bin==i]
-    Xstar = X[bin==i,]
-    gamstar = gam[bin==i] + .01
-    resid = as.numeric(ystar - Xstar %*% b)
+  # If bin assignment resulted in fewer than nbins unique bins, add small noise and retry.
+  if (length(unique(bins)) < nbins) {
+    if (verbose) {
+      message("Fewer than ", nbins, " bins assigned. Adding small noise to break ties.")
+    }
+    set.seed(1)
+    noise <- rnorm(length(y), mean = 0, sd = 1e-7)
+    y_noisy <- y + noise
     
-    s2 = c(s2, ((resid * gamstar) %*% resid) / sum(gamstar))
+    # Recompute quantiles and bins using noisy values.
+    quans <- quantile(y_noisy, probs = seq(0, 1, length.out = nbins + 1), type = 1)
+    bins <- findInterval(y_noisy, quans, rightmost.closed = TRUE, all.inside = TRUE)
   }
   
-  s2
+  # Return bin assignments.
+  return(bins)
 }
 
-vresp = function(y, X, bin, p, b1, s1, b2, s2, verbose=FALSE) {
-  vars0 = s1[bin]
-  L0 = dn(y=y, m=(X %*% b1), s2=vars0, verbose=verbose)
-  vars1 = s2[bin]
-  L1 = dn(y=y, m=(X %*% b2), s2=vars1, verbose=verbose)
+vsig <- function(y, X, b, gam, bin, nbins, verbose = FALSE) {
+  # Initialize empty vector to store variances for each bin.
+  s2 <- NULL
   
-  gam1 = p[1] * L0 / (p[1] * L0 + p[2] * L1)
-  gam2 = 1 - gam1
-  cbind(gam1, gam2)
+  # Loop over each bin.
+  for (i in 1:nbins) {
+    # Extract subset of y, X, and gam corresponding to bin i.
+    ystar <- y[bin == i]              # Response values in bin i.
+    Xstar <- X[bin == i, ]            # Design matrix rows in bin i.
+    gamstar <- gam[bin == i] + 0.01   # Add small constant to gam to avoid zero weight.
+    
+    # Compute residuals: difference between observed and predicted values.
+    resid <- as.numeric(ystar - Xstar %*% b)
+    
+    # Compute weighted residual variance for bin i.
+    # Formula: (∑ wᵢ * rᵢ²) / ∑ wᵢ
+    var_i <- ((resid * gamstar) %*% resid) / sum(gamstar)
+    
+    # Append result to output vector.
+    s2 <- c(s2, var_i)
+  }
+  
+  # Return vector of bin-specific variances.
+  return(s2)
 }
 
-dn = function(y, m, s2, verbose=FALSE) {
-  1 / (sqrt(2 * pi * s2)) * exp(-1 / (2 * s2) * (y - m)^2)
+vresp <- function(y, X, bin, p, b1, s1, b2, s2, verbose = FALSE) {
+  # Get bin-specific variances for each observation under component 1.
+  # s1 is a vector of length nbins, so we map bin indices to variance values.
+  vars0 <- s1[bin]
+  
+  # Compute likelihood under component 1 (e.g., background).
+  # dn() computes the probability density assuming Gaussian noise.
+  L0 <- dn(y = y, m = (X %*% b1), s2 = vars0, verbose = verbose)
+  
+  # Repeat for component 2 (e.g., signal).
+  vars1 <- s2[bin]
+  L1 <- dn(y = y, m = (X %*% b2), s2 = vars1, verbose = verbose)
+  
+  # Compute posterior probabilities using Bayes’ Rule.
+  # gam1 = P(component 1 | y)
+  gam1 <- p[1] * L0 / (p[1] * L0 + p[2] * L1)
+  
+  # gam2 = P(component 2 | y).
+  gam2 <- 1 - gam1
+  
+  # Return a matrix of responsibilities (rows = observations, cols = components).
+  return(cbind(gam1, gam2))
 }
 
-vbeta = function(y, X, bin, gam, s2, prof, verbose=FALSE) {
-  vars = sqrt(s2[bin])
-  sqgam = sqrt(gam)
-  vars_sqgam = vars * sqgam
+dn <- function(y, m, s2, verbose = FALSE) {
+  # Compute the normalizing constant of the Gaussian PDF.
+  # This is 1 / sqrt(2πσ²) for each observation.
+  norm_const <- 1 / sqrt(2 * pi * s2)
   
-  Xw = 1 / vars * sqgam * X
-  yw = 1 / vars * sqgam * y
+  # Compute the exponent part: (y - m)^2 / (2σ²).
+  # This represents the squared deviation scaled by the variance.
+  exponent <- -1 / (2 * s2) * (y - m)^2
   
-  tXw = t(Xw)
-  tXwXw = tXw %*% Xw
-  stXwXw = solve(tXwXw)
-  stXwXwtXw = stXwXw %*% tXw
-  result = stXwXwtXw %*% yw
-  
-  result
+  # Combine parts to compute the PDF for each y[i].
+  # This gives the likelihood of observing y[i] given mean m[i] and variance s2[i].
+  return(norm_const * exp(exponent))
 }
 
-sig = function(y, m, verbose=FALSE) {
-  resid = y - m
-  sqrt((resid %*% resid) / length(y))
+vbeta <- function(y, X, bin, gam, s2, prof, verbose = FALSE) {
+  # Get standard deviation per observation based on bin assignments.
+  vars <- sqrt(s2[bin])  # Standard deviation vector for each sample.
+  
+  # Compute the square root of responsibilities (for weighting).
+  sqgam <- sqrt(gam)
+  
+  # Combine weights from variance and responsibility.
+  # This is the weight applied to each observation.
+  vars_sqgam <- vars * sqgam
+  
+  # Apply weights to design matrix and response vector.
+  # These represent a transformation for weighted least squares.
+  Xw <- (sqgam / vars) * X  # Weighted design matrix
+  yw <- (sqgam / vars) * y  # Weighted response vector
+  
+  # Compute the normal equations for weighted least squares.
+  tXw <- t(Xw)  # Transpose
+  tXwXw <- tXw %*% Xw  # XᵗWX
+  stXwXw <- solve(tXwXw)  # Inverse of XᵗWX
+  stXwXwtXw <- stXwXw %*% tXw  # (XᵗWX)⁻¹ Xᵗ
+  
+  # Estimate regression coefficients β.
+  result <- stXwXwtXw %*% yw
+  
+  # Return β as a vector.
+  return(result)
+}
+
+sig <- function(y, m, verbose = FALSE) {
+  # Compute residuals between observed and predicted values
+  resid <- y - m
+  
+  # Compute standard deviation of residuals.
+  # This is √(∑(resid²) / n), the root mean square error.
+  return(sqrt((resid %*% resid) / length(y)))
 }

@@ -1,0 +1,104 @@
+Accession	Title	Technology	Taxonomy	Data Rows	Samples Count	Series Count	Contact	Release Date	AnnotationPackagePrefix	Comments
+GPL8180	Illumina Mouse v1 MicroRNA expression beadchip	oligonucleotide beads	Mus musculus	380	24	5	Illumina Inc.	11-Feb-09		Excluding because we have no annotations for microRNA chips
+GPL8181	Illumina Mouse v2 MicroRNA expression beadchip	oligonucleotide beads	Mus musculus	656	105	9	Illumina Inc.	11-Feb-09		Excluding because we have no annotations for microRNA chips
+GPL8933	"Illumina Human Beta-version microRNA expression BeadChip,"	oligonucleotide beads	Homo sapiens	735	128	3	Yan W. Asmann	31-Jul-09		Excluding because we have no annotations for microRNA chips
+GPL8178	Illumina Human v1 MicroRNA expression beadchip	oligonucleotide beads	Homo sapiens	735	1431	25	Illumina Inc.	11-Feb-09		Excluding because we have no annotations for microRNA chips
+GPL8179	Illumina Human v2 MicroRNA expression beadchip	oligonucleotide beads	Homo sapiens	1146	3378	97	Illumina Inc.	11-Feb-09		Excluding because we have no annotations for microRNA chips
+GPL15762	Illumina Human v2 MicroRNA Expression BeadChip	oligonucleotide beads	Homo sapiens	1146	117	3	Katherine Hill	22-Jan-13		Excluding because we have no annotations for microRNA chips
+GPL11309	Illumina Custom Prostate Cancer DASL Panel 1.5K expression beadchip	oligonucleotide beads	Homo sapiens	1536	288	3	Gregory Doho	1-Jun-11		Excluding because this is a custom chip.
+GPL7108	Sentrix Mouse-6 Expression BeadChip (3) 	oligonucleotide beads	Mus musculus	9587	16	1	GEO admin	30-Jul-08	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL13405	Illumina MouseWG-6 v2.0 expression beadchip (Gene view)	oligonucleotide beads	Mus musculus	9870	12	1	Torben Redmer	14-Apr-11	illuminaMousev2	
+GPL20715	Illumina Mouse Ref8 v2.0 expression beadchip	oligonucleotide beads	Mus musculus	17951	24	1	Rebekah Karns	27-Jul-15	illuminaMousev2	
+GPL10296	CHB Illumina MouseRef-8 v2.0 expression beadchip	oligonucleotide beads	Mus musculus	18097	12	2	Hao Zhu	7-Apr-10	illuminaMousev2	
+GPL11033	MouseRef-8 v2.0 Expression BeadChip	oligonucleotide beads	Mus musculus	18097	79	3	ren liu	9-Oct-10	illuminaMousev2	
+GPL19575	Illumina MouseRef-8 v2.0 expression beadchip (ILMN_SYMBOL)	oligonucleotide beads	Mus musculus	18106	333	1	Dervis A Salih	24-Dec-14	illuminaMousev2	
+GPL18965	Illumina MouseRef-8 v2.0 expression beadchip (ILMN_SYMBOL)	oligonucleotide beads	Mus musculus	18118	31	2	Kendell Clement	15-Oct-14	illuminaMousev2	
+GPL15097	Illumina MouseRef-8 v2.0 expression beadchip (ILMN_GENE)	oligonucleotide beads	Mus musculus	18138	278	21	Amy M. Becker	7-Jan-12	illuminaMousev2	
+GPL19462	Illumina MouseRef-8 v2.0 expression beadchip (ILMN_SYMBOL)	oligonucleotide beads	Mus musculus	18138	62	4	Laurensia Yuniati	26-Nov-14	illuminaMousev2	
+GPL11123	HumanRef-8 v2 Expression BeadChip	oligonucleotide beads	Homo sapiens	18189	8	1	Sherry Wang	29-May-11	illuminaHumanv2	
+GPL28226	llumina HumanHT-12 V4.0 expression beadchip [custom probe mapping]	oligonucleotide beads	Homo sapiens	18279	268	2	Emma Thompson	30-Mar-20	illuminaHumanv4	
+GPL22571	"Illumina HumanHT-12 WG-DASL V4.0 expression beadchip (gene summary, GenomeStudio report)"	oligonucleotide beads	Homo sapiens	20261	98	2	Susan Neuhausen	30-Nov-16	illuminaHumanWGDASLv4	
+GPL5060	HumanRef-8 v2 Expression BeadChip	oligonucleotide beads	Homo sapiens	20589	23	3	GEO admin	1-Jun-07	illuminaHumanv2	
+GPL6255	Illumina humanRef-8 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	20589	1096	35	GEO admin	7-Dec-07	illuminaHumanv2	
+GPL5104	Sentrix HumanRef-8 v2 Expression BeadChip	oligonucleotide beads	Homo sapiens	20589	630	15	GEO admin	17-Apr-08	illuminaHumanv2	
+GPL18281	Illumina HumanHT-12 WG-DASL V4.0 R2 expression beadchip [gene symbol version]	oligonucleotide beads	Homo sapiens	20818	702	16	Roel G.W. Verhaak	13-Feb-14	illuminaHumanWGDASLv4	
+GPL23026	Illumina HumanHT-12 V4.0 expression beadchip	oligonucleotide beads	Homo sapiens	22111	6	2	Romina D'Aurizio	1-Mar-17	illuminaHumanv4	
+GPL6014	HumanRef-8 v2 Expression BeadChip ( 2 ) 	oligonucleotide beads	Homo sapiens	22178	18	1	GEO admin	16-Oct-07	illuminaHumanv2	
+GPL14186	Illumina HumanRef-8 v2 Expression Beadchip 1699538181	oligonucleotide beads	Homo sapiens	22184	34	3	Sherry Wang	23-Aug-11	illuminaHumanv2	
+GPL6104	Illumina humanRef-8 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	22185	6337	137	Illumina Inc.	13-Dec-07	illuminaHumanv2	
+GPL8031	Illumina ratRef-12 v1.5.0.34 expression beadchip	oligonucleotide beads	Rattus norvegicus	22226	219	14	GEO admin	7-Jan-09	illuminaRatv1	"It says v1.5, but the number of probes matches with 1.0, and there is no annotation for 1.5."
+GPL8649	Univ of Montreal Illumina ratRef-12 v1.0 expression beadchip	oligonucleotide beads	Rattus norvegicus	22226	12	1	Luc DesGroseillers	31-Dec-09	illuminaRatv1	
+GPL16221	Illumina HumanRef-8 v3.0 expression beadchip (Search Key version)	oligonucleotide beads	Homo sapiens	22304	55	3	ROOPA THAPAR	27-Oct-12	illuminaHumanv3	
+GPL6101	Illumina ratRef-12 v1.0 expression beadchip	oligonucleotide beads	Rattus norvegicus	22523	2970	141	Illumina Inc.	13-Dec-07	illuminaRatv1	
+GPL9526	Illumina MouseWG-6 v2.0 expression beadchip [Alternative CDF: affy4248alt]	oligonucleotide beads	Mus musculus	23829	6	1	Marni J Falk	11-Jan-10	illuminaMousev2	
+GPL6100	Illumina mouseRef-8 v1.0 expression beadchip	oligonucleotide beads	Mus musculus	23983	81	7	Illumina Inc.	13-Dec-07	illuminaMousev1	
+GPL6422	Sentrix MouseRef-8 Expression BeadChip	oligonucleotide beads	Mus musculus	24048	219	9	GEO admin	22-Aug-08	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL4865	Sentrix MouseRef-8 Expression BeadChip (Target ID)	oligonucleotide beads	Mus musculus	24048	128	13	Illumina Inc.	30-Jun-07	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL6753	Illumina mouseRef-8 v1.0 expression beadchip	oligonucleotide beads	Mus musculus	24056	16	1	Dietrich Trümbach	31-Dec-09	illuminaMousev1	
+GPL9974	Illumina mouseRef-8 v1.0a expression beadchip	oligonucleotide beads	Mus musculus	24341	8	1	Lynn M Amon	26-Jan-10	illuminaMousev1	"I don't know what ""a"" refers to."
+GPL2700	Sentrix HumanRef-8 Expression BeadChip	oligonucleotide beads	Homo sapiens	24354	1586	38	Illumina Inc.	30-Jul-05	illuminaHumanv1	
+GPL7192	Illumina HumanRef-8 Expression BeadChip	oligonucleotide beads	Homo sapiens	24365	60	3	Yuelin Jack Zhu	12-May-11	illuminaHumanv1	This is probably correct based on the number of probes and lack of a later version number specified.
+GPL6098	Illumina humanRef-8 v1.0 expression beadchip	oligonucleotide beads	Homo sapiens	24385	473	12	Illumina Inc.	13-Dec-07	illuminaHumanv1	
+GPL6883	Illumina HumanRef-8 v3.0 expression beadchip	oligonucleotide beads	Homo sapiens	24526	7128	229	Illumina Inc.	21-May-08	illuminaHumanv3	
+GPL18405	Illumina HumanRef-8 v3.0 expression beadchip (controls added)	oligonucleotide beads	Homo sapiens	24531	174	9	GEO admin	11-Mar-14	illuminaHumanv3	
+GPL6103	Illumina mouseRef-8 v1.1 expression beadchip	oligonucleotide beads	Mus musculus	24613	1369	68	Illumina Inc.	13-Dec-07	illuminaMousev1p1	
+GPL30338	Illumina MouseRef-8 v2.0 expression beadchip [NuID version]	oligonucleotide beads	Mus musculus	24948	24	1	GEO admin	3-Jul-21	illuminaMousev2	
+GPL11009	Illumina HumanWG-6 v3.0 expression beadchip [Entrez ID - condensed version]	oligonucleotide beads	Homo sapiens	25409	14	1	Federico Colombo	2-Oct-10	illuminaHumanv3	
+GPL8389	Illumina Mouse-8 Expression BeadChip	oligonucleotide beads	Mus musculus	25697	194	16	Bu-Yeo Kim	4-Apr-09	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL6885	Illumina MouseRef-8 v2.0 expression beadchip	oligonucleotide beads	Mus musculus	25697	16939	907	Illumina Inc.	21-May-08	illuminaMousev2	
+GPL19441	Illumina mouseref-8_v2_0_r3 expression beadchip	oligonucleotide beads	Mus musculus	25697	34	6	Yibayiri Osee Sanogo	1-Nov-15	illuminaMousev2	
+GPL25831	Illumina mouse sentrix8 V2 r3 expression beadchip	oligonucleotide beads	Mus musculus	26512	6	1	Jochen Utikal	2-Aug-19	illuminaMousev2	
+GPL13938	Illumina HumanHT-12 WG-DASL V4.0 expression beadchip	oligonucleotide beads	Homo sapiens	29285	678	22	Illumina Inc.	18-Jul-11	illuminaHumanWGDASLv4	
+GPL14951	Illumina HumanHT-12 WG-DASL V4.0 R2 expression beadchip	oligonucleotide beads	Homo sapiens	29377	8781	155	GEO admin	2-Dec-11	illuminaHumanWGDASLv4	
+GPL11017	Illumina MouseWG-6 v2.0 expression beadchip (gene version 2)	oligonucleotide beads	Mus musculus	30774	66	5	Randall J. Roper	2-Nov-10	illuminaMousev2	
+GPL19625	Illumina MouseWG-6 v2.0 expression beadchip [MouseWG-6_V2_0_R1_11278593_A version]	oligonucleotide beads	Mus musculus	30774	24	3	Danika Mei Po Khong	1-Mar-15	illuminaMousev2	
+GPL19738	Illumina MouseWG-6 v2.0 expression beadchip [MouseWG-6_V2_0_R1_11278593_A; Gene Symbol version]	oligonucleotide beads	Mus musculus	30774	28	1	GEO admin	4-Feb-15	illuminaMousev2	
+GPL15625	Illumina MouseWG-6 v2.0 expression beadchip (gene level)	oligonucleotide beads	Mus musculus	30839	6	1	Derek Boerboom	1-Sep-12	illuminaMousev2	
+GPL14828	Illumina MouseWG-6 v2.0 expression beadchip (Gene version based on mouseWG-6_V2_0_R3_11278593_A)	oligonucleotide beads	Mus musculus	30854	15	2	hui zhao	4-Nov-11	illuminaMousev2	
+GPL21581	Illumina MouseWG-6 v2.0 expression beadchip (Gene version)	oligonucleotide beads	Mus musculus	30854	42	4	Junmin Lee	20-Apr-16	illuminaMousev2	
+GPL18752	Illumina MouseWG-6 v2.0 expression beadchip [gene symbol version]	oligonucleotide beads	Mus musculus	30854	146	15	GEO admin	3-Jun-14	illuminaMousev2	
+GPL22165	Illumina MouseWG-6 v2.0 R2 expression beadchip [gene symbol version]	oligonucleotide beads	Mus musculus	30854	144	6	GEO admin	18-Jul-16	illuminaMousev2	
+GPL13302	University at Buffalo Illumina MouseWG-6 v2.0 expression beadchip (Gene version)	oligonucleotide beads	Mus musculus	30854	36	4	Yingru Liu	22-Mar-11	illuminaMousev2	
+GPL10951	Illumina MouseWG-6 v2.0 expression beadchip (Gene version)	oligonucleotide beads	Mus musculus	30855	20	2	GEO admin	21-Sep-10	illuminaMousev2	
+GPL17755	Illumina MouseWG-6 v1.0 expression beadchip [custom gene-centered version]	oligonucleotide beads	Mus musculus	31490	24	1	Andrea Richter	24-Sep-13	illuminaMousev1	
+GPL13824	Illumina MouseWG-6 v2.0 expression beadchip (Gene version based on MouseWG6_V2_0_R0_11278593_A)	oligonucleotide beads	Mus musculus	31500	45	5	GEO admin	2-Sep-11	illuminaMousev2	
+GPL24252	Illumina HumanHT-12 V4.0 expression beadchip [Entrez_Gene_ID-level]	oligonucleotide beads	Homo sapiens	33863	4	1	madavan vasudevan	9-Nov-18	illuminaHumanv4	
+GPL22366	Illumina HumanHT-12 V4.0 expression beadchip (reannotation)	oligonucleotide beads	Homo sapiens	34476	30	2	Moshe Olshansky	25-Aug-16	illuminaHumanv4	
+GPL15943	Illumina mouse-6 v1.1 expression beadchip [TargetID centered version]	oligonucleotide beads	Mus musculus	34596	4	1	Mingfang Lu	17-Aug-12	illuminaMousev1p1	
+GPL10904	Illumina HumanHT-12 V4.0 expression beadchip (gene symbol)	oligonucleotide beads	Homo sapiens	34695	7460	150	GEO admin	10-Sep-10	illuminaHumanv4	
+GPL17473	Illumina MouseWG-6 v2.0 expression beadchip [custom gene-centered version]	oligonucleotide beads	Mus musculus	34749	6	1	Nicolai S.C. van Oers	28-Oct-13	illuminaMousev2	
+GPL19915	Illumina HumanHT-12 V3.0 expression beadchip [ILMN_gene symbol]	oligonucleotide beads	Homo sapiens	37804	27	3	GEO admin	19-Mar-15	illuminaHumanv3	
+GPL18387	Illumina HumanWG-6 v3.0 expression beadchip (gene symbol)	oligonucleotide beads	Homo sapiens	37844	16	4	GEO admin	6-Mar-14	illuminaHumanv3	
+GPL15389	Illumina HumanHT-12 V3.0 expression beadchip	oligonucleotide beads	Homo sapiens	37846	145	1	Virginia Bartleson Hebl	1-Sep-12	illuminaHumanv3	
+GPL16700	Illumina HumanHT-12 V3.0 expression beadchip [gene symbol; HumanHT-12_V3_0_R3_11283641_A]	oligonucleotide beads	Homo sapiens	37888	64	5	GEO admin	25-Sep-13	illuminaHumanv3	
+GPL6887	Illumina MouseWG-6 v2.0 expression beadchip	oligonucleotide beads	Mus musculus	45281	17491	1224	Illumina Inc.	21-May-08	illuminaMousev2	
+GPL6099	Illumina mouse-6 v1.0 expression beadchip	oligonucleotide beads	Mus musculus	46005	213	8	Illumina Inc.	13-Dec-07	illuminaMousev1	
+GPL4055	Sentrix Mouse-6 Expression BeadChip	oligonucleotide beads	Mus musculus	46116	68	9	GEO admin	2-Aug-06	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL4234	Sentrix Mouse-6 Expression BeadChip	oligonucleotide beads	Mus musculus	46133	303	17	Illumina Inc.	30-Aug-06	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL18108	Illumina mouse-6 v1.1 expression beadchip [Array_Address_Id version]	oligonucleotide beads	Mus musculus	46147	12	1	yun lian	24-Dec-13	illuminaMousev1p1	
+GPL8237	University of Cambridge/Illumina Sentrix Mouse-6 Expression BeadChip v1	oligonucleotide beads	Mus musculus	46147	48	2	Leonard Goldstein	30-Jun-09	illuminaMousev1	
+GPL17543	Illumina MouseWG-6 v2.0 R2 expression beadchip	oligonucleotide beads	Mus musculus	46237	1623	100	GEO admin	7-Aug-13	illuminaMousev2	
+GPL19250	Illumina MouseWG-6 v2.0 expression beadchip (unofficial custom annotation)	oligonucleotide beads	Mus musculus	46547	214	1	Tal Haim Hasson	1-Oct-14	illuminaMousev2	
+GPL5943	Emory_University Mouse-6 Expression BeadChip 47K	oligonucleotide beads	Mus musculus	46628	6	1	Colleen D McCabe	29-Feb-08	illuminaMousev1	This is probably correct based on the number of probes and lack of a later version number specified.
+GPL6105	Illumina mouse-6 v1.1 expression beadchip	oligonucleotide beads	Mus musculus	46632	1388	79	Illumina Inc.	13-Dec-07	illuminaMousev1p1	
+GPL6481	Illumina mouse-6 v1.1 expression beadchip [Array_Address_Id version]	oligonucleotide beads	Mus musculus	46643	471	30	GEO admin	14-Feb-08	illuminaMousev1p1	
+GPL7350	Aalborg University Illumina human-6 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	46713	90	3	Vladimir Zachar	22-Sep-09	illuminaHumanv2	
+GPL7180	LUH Illumina human-6 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	46713	17	2	Karolin H Nord	1-Apr-09	illuminaHumanv2	
+GPL6790	Illumina HumanRef-6 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	46718	205	6	GEO admin	15-Jan-09	illuminaHumanv2	
+GPL5799	Illumina Human-6 v2 expression beadchip	oligonucleotide beads	Homo sapiens	46720	12	1	Ellen Sterrenburg	12-Sep-07	illuminaHumanv2	
+GPL7306	Illumina HumanRef-6 Expression BeadChip	oligonucleotide beads	Homo sapiens	47292	10	2	Yuelin Jack Zhu	12-May-11	illuminaHumanv1	This is probably correct based on the number of probes and lack of a later version number specified.
+GPL2507	Sentrix Human-6 Expression BeadChip	oligonucleotide beads	Homo sapiens	47293	1420	55	Illumina Inc.	3-Jun-05	illuminaHumanv1	
+GPL6097	Illumina human-6 v1.0 expression beadchip	oligonucleotide beads	Homo sapiens	47296	178	12	Illumina Inc.	13-Dec-07	illuminaHumanv1	
+GPL15988	HumanHT-12 v4 Expression BeadChip (nuID)	oligonucleotide beads	Homo sapiens	47322	1736	8	Saara Marttila	10-Jan-13	illuminaHumanv4	
+GPL28270	Illumina HumanHT-12 v4 Expression BeadChip [Array_Address_Id]	oligonucleotide beads	Homo sapiens	47323	279	9	Ozlem Guzeloglu Kayisli	14-Mar-20	illuminaHumanv4	
+GPL6731	Sentrix Mouse-6 Expression BeadChip (2) 	oligonucleotide beads	Mus musculus	47425	12	1	GEO admin	12-Apr-08	illuminaMousev1	This is probably correct based on the timeframe and lack of a later version number specified.
+GPL28098	Illumina HumanHT-12 V4.0 expression beadchip [HumanHT-12_V4_0_R0_15002873_4.bgx]	oligonucleotide beads	Homo sapiens	47556	120	4	Supriyo De	2-Oct-20	illuminaHumanv4	
+GPL10558	Illumina HumanHT-12 V4.0 expression beadchip	oligonucleotide beads	Homo sapiens	48107	105469	2960	Illumina Inc.	17-Jun-10	illuminaHumanv4	
+GPL10295	Illumina human-6 v2.0 expression beadchip (using nuIDs as identifier)	oligonucleotide beads	Homo sapiens	48701	372	8	Marieke Lydia Kuijjer	11-Feb-11	illuminaHumanv2	
+GPL13376	Illumina HumanWG-6 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	48701	1584	30	Illumina Inc.	6-Apr-11	illuminaHumanv2	
+GPL6106	Sentrix Human-6 v2 Expression BeadChip	oligonucleotide beads	Homo sapiens	48701	743	24	GEO admin	13-Nov-07	illuminaHumanv2	
+GPL6102	Illumina human-6 v2.0 expression beadchip	oligonucleotide beads	Homo sapiens	48702	4417	122	Illumina Inc.	13-Dec-07	illuminaHumanv2	
+GPL18461	Illumina HumanHT-12 V3.0 expression beadchip [HumanHT-12_V3_0_R2_11283641_A]	oligonucleotide beads	Homo sapiens	48781	78	3	GEO admin	24-Mar-14	illuminaHumanv3	
+GPL6884	Illumina HumanWG-6 v3.0 expression beadchip	oligonucleotide beads	Homo sapiens	48803	9525	324	Illumina Inc.	21-May-08	illuminaHumanv3	
+GPL6947	Illumina HumanHT-12 V3.0 expression beadchip	oligonucleotide beads	Homo sapiens	49576	26115	542	Illumina Inc.	10-Jun-08	illuminaHumanv3	
+GPL6370	Illumina human-6 v2.0 expression beadchip (extended)	oligonucleotide beads	Homo sapiens	50173	156	12	GEO admin	13-Jan-09	illuminaHumanv2	
