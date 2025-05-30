@@ -1,7 +1,7 @@
 # if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
 
-# for (packageName in c("doParallel", "GEOquery", "httr", "limma", "oligo", "illuminaHumanv4.db", "readxl")) {
+# for (packageName in c("doParallel", "GEOquery", "httr", "limma", "oligo", "illuminaHumanv4.db", "readxl", "vsn")) {
 #   BiocManager::install(packageName)
 # }
 
@@ -11,17 +11,19 @@ library(httr)
 library(limma)
 library(oligo)
 library(readxl)
+library(vsn)
 
 normalizeBeadChipDataFromGEO <- function(gseID,
                                          nonNormalizedFilePattern="non.*normalized.*\\.txt\\.gz$",
                                          exprColumnPattern=NULL,
-                                         adjustBackground=FALSE,
-                                         useSCAN=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
+                                         correctBackgroundType=NULL,
+                                         scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
                                          vsnNormalize=FALSE,
                                          quantileNormalize=FALSE,
                                          log2Transform=FALSE,
                                          numCores=1,
                                          verbose=FALSE) {
+  #TODO: Make sure parameters are in valid range.
   supplementaryFilePaths <- getSupplementaryFilesFromGEO(gseID)
   nonNormalizedFilePaths <- supplementaryFilePaths[grepl(nonNormalizedFilePattern, supplementaryFilePaths, ignore.case = TRUE)]
 
@@ -45,10 +47,14 @@ normalizeBeadChipDataFromGEO <- function(gseID,
 
   annotationPackagePrefix <- getAnnotationPackagePrefixFromGEO(gseID)
 
+  #TODO: Invoke extractDataUsingAnnotations before invoking this function.
   exprMatrix <- normalizeBeadChipData(nonNormList,
                                       annotationPackagePrefix,
-                                      adjustBackground=adjustBackground,
-                                      useSCAN=useSCAN, scanConvThreshold=scanConvThreshold, scanIntervalN=scanIntervalN, scanBinsize=scanBinsize, scanNbins=scanNbins, scanUseControls=scanUseControls,
+                                      correctBackgroundType=correctBackgroundType,
+                                      scanNormalize=scanNormalize, scanConvThreshold=scanConvThreshold, scanIntervalN=scanIntervalN, scanBinsize=scanBinsize, scanNbins=scanNbins, scanUseControls=scanUseControls,
+                                      vsnNormalize=vsnNormalize,
+                                      quantileNormalize=quantileNormalize,
+                                      log2Transform=log2Transform,
                                       numCores=numCores,
                                       verbose=verbose)
 
@@ -65,14 +71,6 @@ normalizeBeadChipDataFromGEO <- function(gseID,
     
   # Row names must match between featureData and exprMatrix.
   exprMatrix <- exprMatrix[rownames(featureData), ]
-  
-  if (quantileNormalize) {
-    exprMatrix <- normalizeBetweenArrays(exprMatrix, method = "quantile")
-  }
-  
-  if (log2Transform) {
-    exprMatrix <- doLog2(exprMatrix)
-  }
 
   # https://www.bioconductor.org/packages/devel/bioc/vignettes/Biobase/inst/doc/ExpressionSetIntroduction.pdf
   return(ExpressionSet(assayData = exprMatrix,
@@ -227,18 +225,21 @@ retrieveFromIDAT <- function(gseID, supplementaryFilePaths) {
   return(rgSet)
 }
 
-normalizeBeadChipData <- function(nonNormList,
-                                  annotationPackagePrefix,
-                                  adjustBackground=TRUE,
-                                  useSCAN=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
-                                  numCores=1,
-                                  verbose=FALSE) {
+extractDataUsingAnnotations <- function(nonNormList,
+                                        annotationPackagePrefix,
+                                        verbose=FALSE) {
   platformPackageName <- paste0(annotationPackagePrefix, ".db")
   message(paste0("Loading package ", platformPackageName))
   library(platformPackageName, character.only=TRUE)
   
   probeSequenceRef <- getRefInfo(annotationPackagePrefix, "PROBESEQUENCE")
   probeQualityRef <- getRefInfo(annotationPackagePrefix, "PROBEQUALITY")
+
+  # TODO: Use this to find which are control probes and separate based on that.
+  # probeReporterRef <- getRefInfo(annotationPackagePrefix, "REPORTERGROUPNAME", "Probe_Reporter_Type")
+  # # Add rows for "regular" probes.
+  # regularProbes <- setdiff(rownames(exprMatrix), probeReporterRef[,1])
+  # probeReporterRef <- rbind(probeReporterRef, data.frame(Illumina_ID = regularProbes, Probe_Reporter_Type = "regular"))
   
   # Remove low-quality probes
   perfectProbes = which(grepl("Perfect", probeQualityRef$ProbeQuality))
@@ -248,43 +249,156 @@ normalizeBeadChipData <- function(nonNormList,
   exprData <- nonNormList$E
   #detectionPValues <- nonNormList$other$`Detection Pval`
   detectionPValues <- nonNormList$other[[1]] # Sometimes the names are not consistent, but detection p-values should be the only thing in "other".
-
+  
   probesToKeep <- intersect(probesToKeep, rownames(exprData))
   exprData <- exprData[probesToKeep,]
   detectionPValues <- detectionPValues[probesToKeep,]
+
+  # rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
+  # probeSequences = probeSequenceRef[probesToKeep, 2]
   
-  if (adjustBackground) {
-    if (min(exprData) < 0) {
-      if (max(exprData) > 30) {
-        message(paste0("There are negative values in the data, and there are relatively large positive values. This suggests that a background adjustment has already been performed and a log2 transformation has not. To avoid adding noise, we will not perform a background adjustment."))
-      } else {
-        message(paste0("There are negative values in the data, and there are relatively small positive values. This suggests that a background adjustment and/or log2 transformation have been performed. To avoid adding noise, we will not perform a background adjustment."))
-      }
+  return(exprData)
+}
+
+normalizeBeadChipData <- function(signalExprData,
+                                  signalProbeSequences,
+                                  controlExprData=NULL,
+                                  controlProbeSequences=NULL,
+                                  detectionPValues=NULL,
+                                  correctBackgroundType=NULL,
+                                  vsnNormalize=FALSE,
+                                  quantileNormalize=FALSE,
+                                  scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
+                                  log2Transform=TRUE,
+                                  numCores=1,
+                                  verbose=FALSE) {
+  #############################################
+  # Check parameters
+  #############################################
+  
+  if (!is.matrix(signalExprData))
+    stop("signalExprData must be a matrix.")
+  
+  if (is.null(detectionPValues)) {
+    if (is.null(controlExprData)) {
+      stop("If detectionPValues is not provided, controlExprData must be provided.")
     } else {
-      exprData <- performBackgroundCorrection(exprData, signalPValueData=detectionPValues)
+      if (!is.matrix(controlExprData))
+        stop("controlExprData must be a matrix.")
+      
+      if (ncol(signalExprData) != ncol(controlExprData))
+        stop("The dimensions of signalExprData and controlExprData are incompatible.")
     }
+  } else {
+    if (!is.matrix(detectionPValues))
+      stop("detectionPValues must be a matrix.")
+    
+    if (all(dim(signalExprData) != dim(detectionPValues)))
+      stop("The dimensions of signalExprData and detectionPValues are incompatible.")
+  }
+
+  if (is.null(signalProbeSequences)) {
+    stop("A value was not provided for signalProbeSequences.")
+  } else {
+    if (!is.vector(signalProbeSequences))
+      stop("signalProbeSequences must be a vector.")
+    if (nrow(signalExprData) != length(signalProbeSequences))
+      stop("The dimensions of signalExprData and signalProbeSequences must be identical.")
   }
   
-  if (useSCAN) {
+  if (!is.null(controlExprData)) {
+    if (is.null(controlProbeSequences))
+      stop("A value was provided for controlExprData but not for controlProbeSequences.")
+    if (!is.vector(controlProbeSequences))
+      stop("controlProbeSequences must be a vector.")
+    if (nrow(controlExprData) != length(controlProbeSequences))
+      stop("The dimensions of controlExprData and controlProbeSequences must be identical.")
+  }
+  
+  #TODO: Make sure all parameters are in valid range.
+  
+  if (!is.null(correctBackgroundType)) {
+    if (min(signalExprData) < 0) {
+      if (max(signalExprData) > 30) {
+        message(paste0("There are negative values in the data, and there are relatively large positive values. This suggests that a background adjustment has already been performed and a log2 transformation has not. To avoid adding noise, we will not perform a background correction."))
+      } else {
+        message(paste0("There are negative values in the data, and there are relatively small positive values. This suggests that a background adjustment and/or log2 transformation have been performed. To avoid adding noise, we will not perform a background correction."))
+      }
+    } else {
+      if (correctBackgroundType == "controls") {
+        if (is.null(controlExprData)) {
+          stop("A NULL value was specified for controlExprData, but 'controls' was specified for correctBackgroundType.")
+        }
+
+        correctedData <- performBackgroundCorrection(signalExprData, controlExprData=controlExprData)
+        signalExprData <- correctedData[1:nrow(signalExprData),]
+        controlExprData <- correctedData[(nrow(signalExprData) + 1):nrow(correctedData),]
+      } else {
+        if (correctBackgroundType == "detectionP") {
+          if (is.null(detectionPValues)) {
+            stop("A NULL value was specified for detectionPValues, but 'detectionP' was specified for correctBackgroundType.")
+          }
+
+          signalExprData <- performBackgroundCorrection(signalExprData, detectionPValues=detectionPValues)
+        }
+      }
+    }
+  }
+
+  if (vsnNormalize) {
+    # We are going directly to the vsn2 function so that background correction is not also applied.
+    # We are not including the control probes in the VSN normalization to avoid distorting the signal.
+    fit = vsn2(signalExprData)
+    signalExprData = predict(fit, newdata=signalExprData)
+    signalExprData <- 2^signalExprData # Reverse the log2 transformation.
+  }
+
+  if (quantileNormalize) {
+    exprData <- signalExprData
+    
+    if (!is.null(controlExprData)) {
+      exprData <- rbind(exprData, controlExprData)
+    }
+
+    exprData <- normalizeBetweenArrays(exprData, method = "quantile")
+    signalExprData <- exprData[1:nrow(signalExprData),]
+    
+    if (!is.null(controlExprData)) {
+      controlExprData <- exprData[(nrow(signalExprData) + 1):nrow(exprData),]
+    }
+  }
+
+  if (scanNormalize) {
+    exprData <- signalExprData
+    probeSequences <- signalProbeSequences
+    
+    if (!is.null(controlExprData)) {
+      exprData <- rbind(exprData, controlExprData)
+      probeSequences <- c(probeSequences, controlProbeSequences)
+    }
+    
     if (any(exprData < 0, na.rm = TRUE)) {
       message("Negative values detected. Before SCAN can be applied, they must be shifted.")
-      
+
       shiftAmount <- abs(min(exprData, na.rm = TRUE)) + 1
       exprData <- exprData + shiftAmount
     }
-    
+
     if (max(exprData, na.rm = TRUE) < 30) {
       message("It appears the data have been log-transformed. Before SCAN can be applied, Negative values detected: before SCAN can be applied, we must reverse the log transformation.")
       exprData <- 2^exprData
     }
-    
-    rownames(probeSequenceRef) <- probeSequenceRef$IlluminaID
-    probeSequences = probeSequenceRef[probesToKeep, 2]
-    
+
     exprData <- scanNorm(exprData, probeSequences, convThreshold=scanConvThreshold, intervalN=scanIntervalN, binsize=scanBinsize, nbins=scanNbins, numCores=numCores, verbose=verbose)
+    
+    signalExprData <- exprData[1:nrow(signalExprData),]
+  }
+
+  if (log2Transform) {
+    signalExprData <- doLog2(signalExprData)
   }
     
-  return(exprData)
+  return(signalExprData)
 }
 
 getFeatureData <- function(exprMatrix, annotationPackagePrefix) {
@@ -295,6 +409,7 @@ getFeatureData <- function(exprMatrix, annotationPackagePrefix) {
   # https://bioconductor.org/packages/release/data/annotation/manuals/illuminaHumanv4.db/man/illuminaHumanv4.db.pdf
   probeSequenceRef <- getRefInfo(annotationPackagePrefix, "PROBESEQUENCE", "Probe_Sequence")
 
+  # TODO: Remove this info from here because it is used elsewhere for filtering?
   probeReporterRef <- getRefInfo(annotationPackagePrefix, "REPORTERGROUPNAME", "Probe_Reporter_Type")
   # Add rows for "regular" probes.
   regularProbes <- setdiff(rownames(exprMatrix), probeReporterRef[,1])
@@ -560,36 +675,7 @@ getAnnotationPackagePrefixFromGEO <- function(gseID, gplID=NULL) {
   return(platformDF[which(platformDF$Accession == gplID),]$AnnotationPackagePrefix)
 }
 
-performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, signalPValueData=NULL) {
-  #############################################
-  # Check parameters
-  #############################################
-  
-  if (!is.matrix(signalExprData))
-    stop("signalExprData must be a matrix.")
-  
-  if (is.null(signalPValueData)) {
-    if (is.null(controlExprData)) {
-      stop("If signalPValueData is not provided, controlExprData must be provided.")
-    } else {
-      if (!is.matrix(controlExprData))
-        stop("controlExprData must be a matrix.")
-      
-      if (ncol(signalExprData) != ncol(controlExprData))
-        stop("The dimensions of signalExprData and controlExprData are incompatible.")
-    }
-  } else {
-    if (!is.matrix(signalPValueData))
-      stop("signalPValueData must be a matrix.")
-    
-    if (all(dim(signalExprData) != dim(signalPValueData)))
-      stop("The dimensions of signalExprData and signalPValueData are incompatible.")
-  }
-  
-  if (any(signalExprData < 0)) {
-    stop("It appears that the values in signalExprData have already been background corrected. Please use raw, probe-level expression intensities.")
-  }
-  
+performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, detectionPValues=NULL) {
   #############################################
   # Perform background correction (limma).
   #   It models the observed signal as a combination of: Observed_Signal = True_Signal + Background_Noise
@@ -600,20 +686,20 @@ performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, si
   status <- rep("regular", nrow(signalExprData))
 
   if (is.null(controlExprData)) { # We have detection p-values only.
-    exprData <- nec(x = signalExprData, status = status, detection.p = signalPValueData)
+    exprData <- nec(x = signalExprData, status = status, detection.p = detectionPValues)
   } else { # We have control values.
     status <- c(status, rep("negative", nrow(controlExprData)))
-
     exprData <- nec(x = rbind(signalExprData, controlExprData), status = status)
   }
   
   return(exprData)
 }
 
+#FYI: Don't call this function directly.
 # intervalN: Interval for probe sampling, Controls how many probes are selected for estimating model parameters.
 #            Instead of using every single probe (which is computationally expensive), the function samples probes at intervals.
-#            Smaller values → More probes are used, leading to better accuracy but slower computation.
-#            Larger values → Fewer probes are used, making computation faster but potentially less precise.
+#            Larger values → More probes are used, slower computation.
+#            Smaller values → Fewer probes are used, making computation faster but potentially less precise.
 # binsize:   Size of bins for intensity normalization
 #            In SCAN normalization, probes are grouped into bins based on their intensity.
 #            binsize controls how many probes go into each bin.
@@ -632,29 +718,20 @@ performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, si
 # asUPC:     Whether to return values as Universal exPression Codes (probabilistic indicators of expression).
 # numCores:  The number of CPU cores to use when processing the data.
 # verbose:   Whether to display verbose output when processing the data.
-
-scanNorm <- function(exprData, probeSequences, convThreshold=0.5, intervalN=10000, binsize=500, nbins=25, maxIt=100, asUPC=FALSE, numCores=1, verbose=FALSE) {
-  #############################################
-  # Check parameters
-  #############################################
-
-  if (!is.matrix(exprData))
-    stop("exprData must be a matrix.")
-  if (!is.vector(probeSequences))
-    stop("probeSequences must be a vector")
-  if (nrow(exprData) != length(probeSequences))
-    stop("The dimensions of exprData and probeSequences must be identical.")
-  
-  #TODO: Make sure other parameters are in valid range.
-  
-  #############################################
-  # SCAN normalize
-  #############################################
-  
+scanNorm <- function(exprData,
+                     probeSequences,
+                     convThreshold=0.5,
+                     intervalN=10000,
+                     binsize=500,
+                     nbins=25,
+                     maxIt=100,
+                     asUPC=FALSE,
+                     numCores=1,
+                     verbose=FALSE) {
   mx = buildDesignMatrix(probeSequences)
   
   numSamples <- ncol(exprData)
-  
+
   if (numSamples > 1 & numCores > 1)
   {
     cl <- makeCluster(numCores, outfile="")
@@ -681,16 +758,13 @@ scanNorm <- function(exprData, probeSequences, convThreshold=0.5, intervalN=1000
       }
     }
   }
-  
+
   if (numSamples > 1 & numCores > 1)
     stopCluster(cl)
-  
+
   rownames(normData) <- rownames(exprData)
   colnames(normData) <- colnames(exprData)
-  
-  ##########################
-  normData <- normData[rownames(exprData),,drop=FALSE]
-  
+
   return(normData)
 }
 
@@ -728,16 +802,16 @@ scanNormVector <- function(sampleIndex, my, mx, convThreshold, intervalN, binsiz
   
   # Select a subset of probes evenly across the array for model fitting.
   samplingProbeIndices <- sampleProbeIndices(total = length(my), intervalN = intervalN, verbose = verbose)
-  
+
   # Fit a 2-component mixture model using the sampled probes.
   mixResult <- EM_vMix(
     sampleIndex,
     y = my[samplingProbeIndices],
     X = mx[samplingProbeIndices, ],
-    nbins = nbins,
-    convThreshold = convThreshold,
-    maxIt = maxIt,
-    verbose = verbose
+    nbins,
+    convThreshold,
+    maxIt,
+    verbose
   )
   
   # Compute the fitted values from both components for all probes.
@@ -849,7 +923,7 @@ buildDesignMatrix <- function(seqs, verbose = FALSE) {
 }
 
 # This function returns a set of evenly spaced probe indices for sampling.
-# It is useful in scenarios (e.g., mixture model initialization or diagnostics)
+# It is useful in scenarios (e.g., mixture model initialization)
 # where you want to work with a subset of probes that are representative of the
 # full dataset, rather than using all probes, for efficiency.
 sampleProbeIndices <- function(total, intervalN, verbose = FALSE) {
@@ -869,34 +943,34 @@ sampleProbeIndices <- function(total, intervalN, verbose = FALSE) {
 # where each component models gene expression as a linear regression with bin-specific variance.
 # The function estimates mixture proportions (p), regression coefficients (b1, b2),
 # and bin-specific variances (s1, s2) for each component.
-EM_vMix <- function(sampleIndex, y, X, nbins, convThreshold = 0.01, maxIt = 100, verbose = FALSE) {
+EM_vMix <- function(sampleIndex, y, X, nbins, convThreshold, maxIt, verbose) {
   if (verbose)
     message(paste0("Starting EM for sample ", sampleIndex))
-  
+
   # Initialize responsibilities using a median-based split.
   quan <- sort(y)[floor(0.5 * length(y)) - 1]
   gam <- cbind(as.integer(y <= quan), as.integer(y > quan))
-  
+
   # Initialize mixture proportions.
   p <- apply(gam, 2, mean)
   
   # Initialize regression parameters using weighted least squares.
   b1 <- mybeta(y = y, X = X, gam = gam[,1], verbose = verbose)
   b2 <- mybeta(y = y, X = X, gam = gam[,2], verbose = verbose)
-  
+
   # Assign bins to observations for variance modeling.
   bin <- assign_bin(y = y, nbins = nbins, verbose = verbose)
-  
+
   # Initialize bin-specific variances for both components.
   s1 <- vsig(y = y, X = X, b = b1, gam = gam[,1], bin = bin, nbins = nbins, verbose = verbose)
   s2 <- vsig(y = y, X = X, b = b2, gam = gam[,2], bin = bin, nbins = nbins, verbose = verbose)
   
   # Store initial parameter vector for convergence checking.
   theta_old <- c(p, b1, s1, b2, s2)
-  
+
   it <- 0
   conv <- 1e6  # Arbitrarily large initial value to start the loop
-  
+
   # EM loop: iterate until convergence or maximum iterations reached.
   while (conv > convThreshold & it < maxIt) {
     # E-step: compute responsibilities (posterior probabilities).

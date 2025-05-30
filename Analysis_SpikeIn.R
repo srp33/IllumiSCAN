@@ -262,7 +262,7 @@ allPValueData <- rbind(sampleProbeData$other$Detection, controlProbeData$other$D
 signalExprData <- allExprData[signalProbeIDs,]
 controlExprData <- allExprData[controlProbeIDs,]
 signalPValueData <- allPValueData[signalProbeIDs,]
-controlPValueData <- allPValueData[controlProbeIDs,]
+# controlPValueData <- allPValueData[controlProbeIDs,]
 
 # Get the metadata together
 signalExprMeta <- dplyr::filter(allAnnotationData, ProbeID %in% rownames(signalExprData))
@@ -283,7 +283,7 @@ targetData <- distinct(targetData)
 # Parameter combination evaluation
 #####################################################################
 
-testParamCombos1 <- function(signalExprDataOriginal, controlExprDataOriginal, paramCombos, paramTuningOutFilePath, numCores = 4) {
+testParamCombos1 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) {
   outDirPath <- dirname(paramTuningOutFilePath)
   
   if (!file.exists(paramTuningOutFilePath))
@@ -294,11 +294,9 @@ testParamCombos1 <- function(signalExprDataOriginal, controlExprDataOriginal, pa
     
     for (i in 1:nrow(paramCombos))
     {
-      signalExprData <- signalExprDataOriginal
-      controlExprData <- controlExprDataOriginal
-      
       print(paste("Executing parameter combination ", i, "...", sep=""))
       paramCombo = as.vector(unlist(paramCombos[i,]))
+
       backgroundCorrectOption <- paramCombo[1]
       normalizationOption <- paramCombo[2]
       scanOption <- paramCombo[3]
@@ -307,56 +305,23 @@ testParamCombos1 <- function(signalExprDataOriginal, controlExprDataOriginal, pa
       normalizedFilePath <- paste0(outFilePrefix, "_Data.tsv.gz")
       
       if (!file.exists(normalizedFilePath)) {
-        if (backgroundCorrectOption == "controls") {
-          correctedData <- performBackgroundCorrection(signalExprData, controlExprData=controlExprData)
+        normData <- normalizeBeadChipData(signalExprData,
+                                          signalExprMeta$Sequence,
+                                          controlExprData=controlExprData,
+                                          controlProbeSequences=controlExprMeta$Sequence,
+                                          detectionPValues=signalPValueData,
+                                          correctBackgroundType=backgroundCorrectOption,
+                                          vsnNormalize=(normalizationOption=="vsn"),
+                                          quantileNormalize=(normalizationOption=="quantile"),
+                                          scanNormalize=(scanOption=="SCAN"),
+                                          numCores = numCores,
+                                          verbose = TRUE)
 
-          signalExprData <- correctedData[1:nrow(signalExprData),]
-          controlExprData <- correctedData[(1 + nrow(signalExprData)):(nrow(signalExprData)+nrow(controlExprData)),]
-        }
-        if (backgroundCorrectOption == "detectionP") {
-          signalExprData <- performBackgroundCorrection(signalExprData, signalPValueData=signalPValueData)
-        }
-        
-        # This is supposed to be done with raw intensities (I assume background corrected data is okay).    
-        if (normalizationOption == "vsn") {
-          # We are going directly to the vsn2 function so that background correction is not also applied.
-          # We are not including the control probes in the VSN normalization to avoid distorting the signal.
-          fit = vsn2(signalExprData)
-          signalExprData = predict(fit, newdata=signalExprData)
-          signalExprData <- 2^signalExprData # Reverse the log2 transformation.
-        }
-        
-        if (grepl("^SCAN|^SCANnocontrols", scanOption)) {
-          if (grepl("^SCANnocontrols", scanOption)) {
-            data <- signalExprData
-            probeSequences <- signalExprMeta$Sequence
-          } else {
-            data <- rbind(signalExprData, controlExprData)
-            probeSequences <- c(signalExprMeta$Sequence, controlExprMeta$Sequence)
-          }
-
-          # Use default parameters.
-          normData <- scanNorm(data, probeSequences, numCores = numCores, verbose = TRUE)
-          
-          if (grepl("^SCANnocontrols", scanOption)) {
-            signalExprData <- normData
-          } else {
-            signalExprData <- normData[1:nrow(signalExprData),]
-            controlExprData <- normData[(1 + nrow(signalExprData)):(nrow(signalExprData)+nrow(controlExprData)),]
-          }
-        }
-        
-        if (normalizationOption == "quantile") {
-          signalExprData <- normalizeBetweenArrays(signalExprData, method = "quantile")
-        }
-        
-        signalExprData <- log2(signalExprData)
-        
-        signalExprData <- as.data.frame(signalExprData) %>%
+        normData <- as.data.frame(normData) %>%
           rownames_to_column("ProbeID") %>%
           mutate(ProbeID = as.integer(str_replace(ProbeID, "^X", "")))
-        
-        write_tsv(signalExprData, normalizedFilePath)
+
+        write_tsv(normData, normalizedFilePath)
       }
       
       normData <- read_tsv(normalizedFilePath)
@@ -398,13 +363,13 @@ testParamCombos1 <- function(signalExprDataOriginal, controlExprDataOriginal, pa
 
 backgroundCorrectOptions <- c("none", "controls", "detectionP")
 normalizationOptions <- c("none", "quantile", "vsn")
-scanOptions <- c("none", "SCAN", "SCANnocontrols")
+scanOptions <- c("none", "SCAN")
 
 paramCombos <- expand_grid(backgroundCorrectOptions, normalizationOptions, scanOptions)
 
 paramTuning1FilePath <- "Param_Tuning_1/Param_Tuning_Summary.tsv"
 
-comparisonResults <- testParamCombos1(signalExprData, controlExprData, paramCombos, paramTuning1FilePath)
+comparisonResults <- testParamCombos1(paramCombos, paramTuning1FilePath)
 
 comparisonResults <- read_tsv(paramTuning1FilePath) %>%
   mutate(GC_Rank = rank(abs(`GC rho`))) %>%
@@ -419,28 +384,14 @@ comparisonResults <- read_tsv(paramTuning1FilePath) %>%
 
 # This round of tuning looks for the best hyperparameter combination for SCAN.
 
-scanOptions <- c()
-
-convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
-intervalNOptions <- c(1000, 5000, 10000, 50000)
-binsizeOptions <- c(50, 500, 5000)
-
-scanParamCombos <- expand_grid(convThresholdOptions, intervalNOptions, binsizeOptions)
-
-for (i in 1:nrow(scanParamCombos)) {
-  scanParamCombo <- as.vector(unlist(scanParamCombos[i,]))
-  scanOptions <- c(scanOptions, paste(scanParamCombo, collapse = "_"))
-}
-
-paramTuning2FilePath <- "Param_Tuning_2/Param_Tuning_Summary.tsv"
-
-testParamCombos2 <- function(signalExprData, controlExprData, paramCombos, paramTuningOutFilePath, numCores = 4) {
+testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) {
+# testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 1) {
   outDirPath <- dirname(paramTuningOutFilePath)
   
   # if (!file.exists(paramTuningOutFilePath))
   {
     dir.create(outDirPath, showWarnings = FALSE, recursive = TRUE)
-    colnames(scanParamCombos) <- c("convThreshold", "intervalN", "binSize")
+    colnames(scanParamCombos) <- c("convThreshold", "intervalN", "binsize", "nbins", "controls")
     comparisonResults <- NULL
     
     for (i in 1:nrow(paramCombos))
@@ -448,17 +399,36 @@ testParamCombos2 <- function(signalExprData, controlExprData, paramCombos, param
       print(paste("Executing parameter combination ", i, "...", sep=""))
 
       paramCombo = as.vector(unlist(paramCombos[i,]))
-      convThreshold <- paramCombo[1]
-      intervalN <- paramCombo[2]
-      binsize <- paramCombo[3]
+      convThreshold <- as.numeric(paramCombo[1])
+      intervalN <- as.numeric(paramCombo[2])
+      binsize <- as.numeric(paramCombo[3])
+      nbins <- as.numeric(paramCombo[4])
+      controls <- paramCombo[5]
       
       outFilePrefix <- paste0(outDirPath, "/", paste(paramCombo, collapse="____"))
       normalizedFilePath <- paste0(outFilePrefix, "_Data.tsv.gz")
       
       if (!file.exists(normalizedFilePath)) {
-        data <- rbind(signalExprData, controlExprData)
-        probeSequences <- c(signalExprMeta$Sequence, controlExprMeta$Sequence)
-        normData <- scanNorm(data, probeSequences, convThreshold = convThreshold, intervalN = intervalN, binsize = binsize, numCores = numCores, verbose = TRUE)
+        if (controls == "controls") {
+          controlExprDataTest <- controlExprData
+          controlProbeSequencesTest <- controlExprMeta$Sequence
+        } else {
+          controlExprDataTest <- NULL
+          controlProbeSequencesTest <- NULL
+        }
+
+        normData <- normalizeBeadChipData(signalExprData,
+                                          signalExprMeta$Sequence,
+                                          controlExprData = controlExprDataTest,
+                                          controlProbeSequences = controlProbeSequencesTest,
+                                          detectionPValues = signalPValueData,
+                                          vsnNormalize = TRUE,
+                                          scanConvThreshold = convThreshold,
+                                          scanIntervalN = intervalN,
+                                          scanBinsize = binsize,
+                                          scanNbins = nbins,
+                                          numCores = numCores,
+                                          verbose = TRUE)
 
         normData <- as.data.frame(normData) %>%
           rownames_to_column("ProbeID") %>%
@@ -477,10 +447,10 @@ testParamCombos2 <- function(signalExprData, controlExprData, paramCombos, param
       gc_rho <- plotGC(normDataAveraged, signalExprMeta, paste0(outFilePrefix, "_GC.pdf"))
       conc_rho <- plotConcentrations(normDataAveraged, paste0(outFilePrefix, "_Spike.pdf"))
 
-      comparisonResults <- rbind(comparisonResults, c(convThreshold, intervalN, binsize, stats, consistencyMetrics, notSpikedDiffExprMetric, lowSpikedDiffExprMetric, gc_rho, conc_rho))
+      comparisonResults <- rbind(comparisonResults, c(convThreshold, intervalN, binsize, nbins, controls, stats, consistencyMetrics, notSpikedDiffExprMetric, lowSpikedDiffExprMetric, gc_rho, conc_rho))
     }
 
-    colnames(comparisonResults) <- c("convThreshold", "intervalN", "binsize", "min", "mean", "median", "max", "sd", "CrossTargetConsistency", "CrossSampleConsistency", "WithinSampleConsistency", "NoSpikeInDiffExprProportion", "LowSpikeInDiffExprProportion", "GC rho", "Spike-in concentration rho")
+    colnames(comparisonResults) <- c("convThreshold", "intervalN", "binsize", "nbins", "controls", "min", "mean", "median", "max", "sd", "CrossTargetConsistency", "CrossSampleConsistency", "WithinSampleConsistency", "NoSpikeInDiffExprProportion", "LowSpikeInDiffExprProportion", "GC rho", "Spike-in concentration rho")
 
     comparisonResults <- as_tibble(comparisonResults) %>%
       mutate(min = as.numeric(min),
@@ -499,8 +469,16 @@ testParamCombos2 <- function(signalExprData, controlExprData, paramCombos, param
 
   return(read_tsv(paramTuningOutFilePath))
 }
-  
-comparisonResults <- testParamCombos2(signalExprData, controlExprData, scanParamCombos, paramTuning2FilePath)
+
+convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
+intervalNOptions <- c(1000, 5000, 10000, 50000)
+binsizeOptions <- c(50, 500, 5000)
+nbinsOptions <- c(10, 25, 50)
+controlsOptions <- c("controls", "nocontrols")
+
+paramTuning2FilePath <- "Param_Tuning_2/Param_Tuning_Summary.tsv"
+scanParamCombos <- expand_grid(convThresholdOptions, intervalNOptions, binsizeOptions, nbinsOptions, controlsOptions)
+comparisonResults <- testParamCombos2(scanParamCombos, paramTuning2FilePath)
 
 comparisonResults <- read_tsv(paramTuning2FilePath) %>%
   mutate(GC_Rank = rank(abs(`GC rho`))) %>%
@@ -509,17 +487,11 @@ comparisonResults <- read_tsv(paramTuning2FilePath) %>%
   mutate(CrossSampleConsistency_Rank = rank(CrossSampleConsistency)) %>%
   mutate(WithinSampleConsistency_Rank = rank(WithinSampleConsistency)) %>%
   mutate(NoSpikeInDiffExprProportion_Rank = rank(-NoSpikeInDiffExprProportion)) %>%
+  mutate(LowSpikeInDiffExprProportion_Rank = rank(-LowSpikeInDiffExprProportion)) %>%
   mutate(Combined_Rank = GC_Rank + Spike_Rank + CrossTargetConsistency_Rank + CrossSampleConsistency_Rank + WithinSampleConsistency_Rank + NoSpikeInDiffExprProportion_Rank + LowSpikeInDiffExprProportion_Rank) %>%
   arrange(Combined_Rank)
 
-#TODO: Make sure we're using controls with quantile normalization, etc.
-#        Reference the necq documentation.
-#        No longer keep controlExprData?
-#      Decide whether to use controls.
-#        Separate scanNorm and scanNormVector params out by control and signal.
-#      Decide whether to use VSN.
-#      Then run all the parameter combinations.
-#        Add nbins and control/non to the parameter options.
+#TODO: Run all the parameter combinations.
 #      Then modify the parameter options in IllumiSCAN.R and simplify it (add VSN, remove quantile normalization, remove other stuff, etc.) 
 
 #####################################################################
@@ -592,15 +564,14 @@ comparisonResults <- read_tsv(paramTuning2FilePath) %>%
 #   ylab("Combined rank (lower is better)") +
 #   theme_bw()
 
-#TODO: For now, we just picked one of the parameter combinations. Need to compare them?
-#For the paper: "Given these observations and previous work for Affymetrix arrays, it would seem that more sophisticated methods than background normalisation are needed to account for sequence-specific hybridisation effects." (https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-85)
-#TODO: Use the annotations to look for control probes when we do SCAN normalization. Is this status in the metadata?
+# TODO: Rework the above graphs.
+# TODO: Use the annotations to look for control probes when we do SCAN normalization. Is this status in the metadata?
 #      Then discard these probes after normalization?
 # TODO: Use arrayQualityMetrics to assess quality and add quality findings to the phenoData.
-# TODO: Rework the above graphs.
+# TODO: Work with Down Syndrome data from Process_Illumina_Microarray.R.
 # TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)
 #         Or at least make a note of it.
-# TODO: Work with Down Syndrome data from Process_Illumina_Microarray.R.
+# TODO: For the paper: "Given these observations and previous work for Affymetrix arrays, it would seem that more sophisticated methods than background normalisation are needed to account for sequence-specific hybridisation effects." (https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-85)
 
 #####################################################################
 # Plot different versions of the data against each other.
