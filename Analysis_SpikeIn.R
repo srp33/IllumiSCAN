@@ -314,6 +314,7 @@ testParamCombos1 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) 
                                           vsnNormalize=(normalizationOption=="vsn"),
                                           quantileNormalize=(normalizationOption=="quantile"),
                                           scanNormalize=(scanOption=="SCAN"),
+                                          log2Transform=(scanOption!="SCAN"),
                                           numCores = numCores,
                                           verbose = TRUE)
 
@@ -423,6 +424,7 @@ testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) 
                                           controlProbeSequences = controlProbeSequencesTest,
                                           detectionPValues = signalPValueData,
                                           vsnNormalize = TRUE,
+                                          scanNormalize = TRUE,
                                           scanConvThreshold = convThreshold,
                                           scanIntervalN = intervalN,
                                           scanBinsize = binsize,
@@ -470,11 +472,17 @@ testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) 
   return(read_tsv(paramTuningOutFilePath))
 }
 
-convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
-intervalNOptions <- c(1000, 5000, 10000, 50000)
-binsizeOptions <- c(50, 500, 5000)
-nbinsOptions <- c(10, 25, 50)
-controlsOptions <- c("controls", "nocontrols")
+convThresholdOptions <- c(1)
+intervalNOptions <- c(50000)
+binsizeOptions <- c(5000)
+nbinsOptions <- c(25)
+controlsOptions <- c("controls")
+
+# convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
+# intervalNOptions <- c(1000, 5000, 10000, 50000)
+# binsizeOptions <- c(50, 500, 5000)
+# nbinsOptions <- c(10, 25, 50)
+# controlsOptions <- c("controls", "nocontrols")
 
 paramTuning2FilePath <- "Param_Tuning_2/Param_Tuning_Summary.tsv"
 scanParamCombos <- expand_grid(convThresholdOptions, intervalNOptions, binsizeOptions, nbinsOptions, controlsOptions)
@@ -491,80 +499,48 @@ comparisonResults <- read_tsv(paramTuning2FilePath) %>%
   mutate(Combined_Rank = GC_Rank + Spike_Rank + CrossTargetConsistency_Rank + CrossSampleConsistency_Rank + WithinSampleConsistency_Rank + NoSpikeInDiffExprProportion_Rank + LowSpikeInDiffExprProportion_Rank) %>%
   arrange(Combined_Rank)
 
-#TODO: Run all the parameter combinations.
-#      Then modify the parameter options in IllumiSCAN.R and simplify it (add VSN, remove quantile normalization, remove other stuff, etc.) 
-
 #####################################################################
 # Plot the summarized results of parameter evaluation
 #####################################################################
 
-# filter(comparisonResults, !is.na(convThreshold)) %>%
-#   ggplot(aes(x = as.factor(convThreshold), y = `GC rho`)) +
-#     geom_boxplot(outlier.shape = NA) +
-#     geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#     xlab("SCAN convergence threshold parameter") +
-#     ylab("Mean rho statistic") +
-#     ggtitle("Correlation between GC content and expression values per spike-in concentration") +
-#     theme_bw(base_size = 14)
-# 
-# filter(comparisonResults, !is.na(intervalN)) %>%
-#   ggplot(aes(x = as.factor(intervalN), y = `GC rho`)) +
-#   geom_boxplot(outlier.shape = NA) +
-#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#   xlab("SCAN intervalN parameter") +
-#   ylab("Mean rho statistic") +
-#   ggtitle("Correlation between GC content and expression values per spike-in concentration") +
-#   theme_bw(base_size = 14)
-# 
-# filter(comparisonResults, !is.na(binsize)) %>%
-#   ggplot(aes(x = as.factor(binsize), y = `GC rho`)) +
-#   geom_boxplot(outlier.shape = NA) +
-#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#   xlab("SCAN binsize parameter") +
-#   ylab("Mean rho statistic") +
-#   ggtitle("Correlation between GC content and expression values per spike-in concentration") +
-#   theme_bw(base_size = 14)
-# 
-# filter(comparisonResults, !is.na(convThreshold)) %>%
-#   ggplot(aes(x = as.factor(convThreshold), y = `Spike-in concentration rho`)) +
-#     geom_boxplot(outlier.shape = NA) +
-#     geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#     xlab("SCAN convergence threshold parameter") +
-#     ylab("Mean rho statistic") +
-#     ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
-#     theme_bw(base_size = 14)
-# 
-# filter(comparisonResults, !is.na(intervalN)) %>%
-#   ggplot(aes(x = as.factor(intervalN), y = `Spike-in concentration rho`)) +
-#   geom_boxplot(outlier.shape = NA) +
-#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#   xlab("SCAN intervalN parameter") +
-#   ylab("Mean rho statistic") +
-#   ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
-#   theme_bw(base_size = 14)
-# 
-# filter(comparisonResults, !is.na(binsize)) %>%
-#   ggplot(aes(x = as.factor(binsize), y = `Spike-in concentration rho`)) +
-#   geom_boxplot(outlier.shape = NA) +
-#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#   xlab("SCAN binsize parameter") +
-#   ylab("Mean rho statistic") +
-#   ggtitle("Correlation between spike-in concentration and expression values per spike-in probe") +
-#   theme_bw(base_size = 14)
-# 
-# baselineResults = filter(comparisonResults, `Input data` == "Non-normalized expression values")
-# benchmarkResults = filter(comparisonResults, `Input data` != "Non-normalized expression values") %>%
-#   filter(`Input data` != "Detection p-values")
-# 
-# ggplot(benchmarkResults, aes(x = `Input data`, y = Combined_Rank)) +
-#   geom_boxplot() +
-#   geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
-#   geom_hline(yintercept = pull(baselineResults, Combined_Rank), color = "blue", linetype = "dashed") +
-#   xlab("Input data type") +
-#   ylab("Combined rank (lower is better)") +
-#   theme_bw()
+ggplot(comparisonResults, aes(x = as.factor(convThreshold), y = Combined_Rank)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+  xlab("SCAN convergence threshold parameter") +
+  ylab("Combined rank (lower is better)") +
+  theme_bw(base_size = 14)
 
-# TODO: Rework the above graphs.
+ggplot(comparisonResults, aes(x = as.factor(intervalN), y = Combined_Rank)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+  xlab("SCAN intervalN parameter") +
+  ylab("Combined rank (lower is better)") +
+  theme_bw(base_size = 14)
+
+ggplot(comparisonResults, aes(x = as.factor(binsize), y = Combined_Rank)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+  xlab("SCAN binsize parameter") +
+  ylab("Combined rank (lower is better)") +
+  theme_bw(base_size = 14)
+
+ggplot(comparisonResults, aes(x = as.factor(nbins), y = Combined_Rank)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+  xlab("SCAN nbins parameter") +
+  ylab("Combined rank (lower is better)") +
+  theme_bw(base_size = 14)
+
+ggplot(comparisonResults, aes(x = as.factor(controls), y = Combined_Rank)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "red", alpha = 0.5, size = 1.5) +
+  xlab("SCAN controls parameter") +
+  ylab("Combined rank (lower is better)") +
+  theme_bw(base_size = 14)
+
+# TODO: Modify the parameter options in IllumiSCAN.R.
+#   What to do about logTransform parameter?
+#   What to do about scanUseControls parameter? Keep it?
 # TODO: Use the annotations to look for control probes when we do SCAN normalization. Is this status in the metadata?
 #      Then discard these probes after normalization?
 # TODO: Use arrayQualityMetrics to assess quality and add quality findings to the phenoData.
