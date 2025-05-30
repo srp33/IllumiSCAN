@@ -125,8 +125,6 @@ calcConsistencyAcrossReplicates <- function(data) {
 
 calcNormalizedStandardDeviation <- function(x, numTrim = 0) {
   rmse <- sqrt(mean((x - mean(x))^2))
-  # range_x <- max(x) - min(x)
-  # range_x <- IQR(x)
 
   y <- sort(x)
   range_x <- y[length(y) - numTrim] - y[1 + numTrim] # Find the range but ignore one on each extreme.
@@ -386,10 +384,9 @@ comparisonResults <- read_tsv(paramTuning1FilePath) %>%
 # This round of tuning looks for the best hyperparameter combination for SCAN.
 
 testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) {
-# testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 1) {
   outDirPath <- dirname(paramTuningOutFilePath)
   
-  # if (!file.exists(paramTuningOutFilePath))
+  if (!file.exists(paramTuningOutFilePath))
   {
     dir.create(outDirPath, showWarnings = FALSE, recursive = TRUE)
     colnames(scanParamCombos) <- c("convThreshold", "intervalN", "binsize", "nbins", "controls")
@@ -472,17 +469,11 @@ testParamCombos2 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) 
   return(read_tsv(paramTuningOutFilePath))
 }
 
-convThresholdOptions <- c(1)
-intervalNOptions <- c(50000)
-binsizeOptions <- c(5000)
-nbinsOptions <- c(25)
-controlsOptions <- c("controls")
-
-# convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
-# intervalNOptions <- c(1000, 5000, 10000, 50000)
-# binsizeOptions <- c(50, 500, 5000)
-# nbinsOptions <- c(10, 25, 50)
-# controlsOptions <- c("controls", "nocontrols")
+convThresholdOptions <- c(0.01, 0.1, 0.5, 1)
+intervalNOptions <- c(1000, 5000, 10000, 50000)
+binsizeOptions <- c(50, 500, 5000)
+nbinsOptions <- c(10, 25, 50)
+controlsOptions <- c("controls", "nocontrols")
 
 paramTuning2FilePath <- "Param_Tuning_2/Param_Tuning_Summary.tsv"
 scanParamCombos <- expand_grid(convThresholdOptions, intervalNOptions, binsizeOptions, nbinsOptions, controlsOptions)
@@ -548,43 +539,3 @@ ggplot(comparisonResults, aes(x = as.factor(controls), y = Combined_Rank)) +
 # TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)
 #         Or at least make a note of it.
 # TODO: For the paper: "Given these observations and previous work for Affymetrix arrays, it would seem that more sophisticated methods than background normalisation are needed to account for sequence-specific hybridisation effects." (https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-85)
-
-#####################################################################
-# Plot different versions of the data against each other.
-#####################################################################
-
-# nonNormalized = read_tsv("Outputs/NonNormalizedExpression.tsv.gz") %>%
-#   averageAcrossReplicates(log2Transform = TRUE) %>%
-#   dplyr::rename(`Not normalized` = Value)
-# 
-# normWithControls = read_tsv("Outputs/0.01_1000_50_WithControls_NormData.tsv.gz") %>%
-#   averageAcrossReplicates() %>%
-#   dplyr::rename(`Normalized with controls` = Value)
-# 
-# normDetectionP = read_tsv("Outputs/0.01_1000_50_DetectionPValues_NormData.tsv.gz") %>%
-#   averageAcrossReplicates() %>%
-#   dplyr::rename(`Normalized with detection p-values` = Value)
-# 
-# normExpressionOnly = read_tsv("Outputs/0.01_1000_50_ExpressionOnly_NormData.tsv.gz") %>%
-#   averageAcrossReplicates() %>%
-#   dplyr::rename(`Normalized with expression data only` = Value)
-# 
-# plot_data = inner_join(nonNormalized, normWithControls) %>%
-#   inner_join(normDetectionP) %>%
-#   inner_join(normExpressionOnly)
-# 
-# cor(pull(plot_data, `Not normalized`), pull(plot_data, `Normalized with controls`), method="spearman")
-# cor(pull(plot_data, `Normalized with controls`), pull(plot_data, `Normalized with detection p-values`), method="spearman")
-# cor(pull(plot_data, `Normalized with controls`), pull(plot_data, `Normalized with expression data only`), method="spearman")
-# cor(pull(plot_data, `Normalized with detection p-values`), pull(plot_data, `Normalized with expression data only`), method="spearman")
-# 
-# plot_data %>%
-#   # ggplot(aes(x = `Not normalized`, y = `Normalized with controls`)) +
-#   # ggplot(aes(x = `Normalized with controls`, y = `Normalized with detection p-values`)) +
-#   ggplot(aes(x = `Normalized with controls`, y = `Normalized with expression data only`)) +
-#     # geom_point(alpha = 0.05, size = 0.5) +
-#     geom_hex(bins = 100) +
-#     scale_fill_viridis_c() +
-#    # geom_smooth(method  = "lm", color = "red", size = 0.5) +
-#     facet_wrap(vars(SpikeConc)) +
-#     theme_bw()
