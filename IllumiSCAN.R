@@ -17,10 +17,10 @@ normalizeBeadChipDataFromGEO <- function(gseID,
                                          nonNormalizedFilePattern="non.*normalized.*\\.txt\\.gz$",
                                          exprColumnPattern=NULL,
                                          correctBackgroundType=NULL,
-                                         scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
+                                         scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=50000, scanBinsize=500, scanNbins=25, scanMaxIt=100, scanAsUPC=FALSE,
                                          vsnNormalize=TRUE,
                                          quantileNormalize=FALSE,
-                                         log2Transform=FALSE,
+                                         log2Transform=TRUE,
                                          numCores=1,
                                          verbose=FALSE) {
   #TODO: Make sure parameters are in valid range.
@@ -51,7 +51,7 @@ normalizeBeadChipDataFromGEO <- function(gseID,
   exprMatrix <- normalizeBeadChipData(nonNormList,
                                       annotationPackagePrefix,
                                       correctBackgroundType=correctBackgroundType,
-                                      scanNormalize=scanNormalize, scanConvThreshold=scanConvThreshold, scanIntervalN=scanIntervalN, scanBinsize=scanBinsize, scanNbins=scanNbins, scanUseControls=scanUseControls,
+                                      scanNormalize=scanNormalize, scanConvThreshold=scanConvThreshold, scanIntervalN=scanIntervalN, scanBinsize=scanBinsize, scanNbins=scanNbins, scanMaxIt=scanMaxIt, scanAsUPC=scanAsUPC,
                                       vsnNormalize=vsnNormalize,
                                       quantileNormalize=quantileNormalize,
                                       log2Transform=log2Transform,
@@ -268,8 +268,8 @@ normalizeBeadChipData <- function(signalExprData,
                                   correctBackgroundType=NULL,
                                   vsnNormalize=FALSE,
                                   quantileNormalize=FALSE,
-                                  scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=10000, scanBinsize=500, scanNbins=25, scanUseControls=TRUE,
-                                  log2Transform=FALSE,
+                                  scanNormalize=TRUE, scanConvThreshold=0.5, scanIntervalN=50000, scanBinsize=500, scanNbins=25, scanMaxIt=100, scanAsUPC=FALSE,
+                                  log2Transform=TRUE,
                                   numCores=1,
                                   verbose=FALSE) {
   #############################################
@@ -314,8 +314,34 @@ normalizeBeadChipData <- function(signalExprData,
     if (nrow(controlExprData) != length(controlProbeSequences))
       stop("The dimensions of controlExprData and controlProbeSequences must be identical.")
   }
-  
-  #TODO: Make sure all parameters are in valid range.
+
+  # Make sure all parameters are in valid range.
+  if (!(correctBackgroundType %in% c(NULL, "controls", "detectionP")))
+    stop("Invalid value for correctBackgroundType.")
+  if (!is.logical(vsnNormalize))
+    stop("vsnNormalize must be a logical value.")
+  if (!is.logical(quantileNormalize))
+    stop("quantileNormalize must be a logical value.")
+  if (!is.logical(scanNormalize))
+    stop("scanNormalize must be a logical value.")
+  if (!is.logical(log2Transform))
+    stop("log2Transform must be a logical value.")
+  if (!is.numeric(scanConvThreshold) | scanConvThreshold < 0.01 | scanConvThreshold > 100)
+    stop("Invalid value for scanConvThreshold.")
+  if (!is.numeric(scanIntervalN) | !(as.integer(scanIntervalN) = scanIntervalN) | scanIntervalN < 1000 | scanIntervalN > 50000)
+    stop("Invalid value for scanIntervalN.")
+  if (!is.numeric(scanBinsize) | !(as.integer(scanBinsize) = scanBinsize) | scanBinsize < 50 | scanBinsize > 5000)
+    stop("Invalid value for scanBinsize.")
+  if (!is.numeric(scanNbins) | !(as.integer(scanNbins) = scanNbins) | scanNbins < 10 | scanNbins > 50)
+    stop("Invalid value for scanNbins.")
+  if (!is.numeric(scanMaxIt) | !(as.integer(scanMaxIt) = scanMaxIt) | scanMaxIt < 10 | scanMaxIt > 10000)
+    stop("Invalid value for scanMaxIt.")
+  if (!is.logical(scanAsUPC))
+    stop("scanAsUPC must be a logical value.")
+  if (!is.numeric(numCores) | !(as.integer(numCores) = numCores) | numCores < 1 | numCores > 10000)
+    stop("Invalid value for numCores")
+  if (!is.logical(verbose))
+    stop("verbose must be a logical value.")
   
   if (!is.null(correctBackgroundType)) {
     if (min(signalExprData) < 0) {
@@ -389,8 +415,8 @@ normalizeBeadChipData <- function(signalExprData,
       exprData <- 2^exprData
     }
 
-    exprData <- scanNorm(exprData, probeSequences, convThreshold=scanConvThreshold, intervalN=scanIntervalN, binsize=scanBinsize, nbins=scanNbins, numCores=numCores, verbose=verbose)
-    
+    exprData <- scanNorm(exprData, probeSequences, scanConvThreshold, scanIntervalN, scanBinsize, scanNbins, scanMaxIt, scanAsUPC, numCores, verbose)
+
     signalExprData <- exprData[1:nrow(signalExprData),]
   }
 
@@ -696,38 +722,7 @@ performBackgroundCorrection <- function(signalExprData, controlExprData=NULL, de
 }
 
 #FYI: Don't call this function directly.
-# intervalN: Interval for probe sampling, Controls how many probes are selected for estimating model parameters.
-#            Instead of using every single probe (which is computationally expensive), the function samples probes at intervals.
-#            Larger values → More probes are used, slower computation.
-#            Smaller values → Fewer probes are used, making computation faster but potentially less precise.
-# binsize:   Size of bins for intensity normalization
-#            In SCAN normalization, probes are grouped into bins based on their intensity.
-#            binsize controls how many probes go into each bin.
-#            Smaller bins = More precise normalization but slower computation.
-#            Larger bins = Smoother adjustments but may miss finer details.
-# nbins:     Number of bins
-#            Determines how many bins are used for normalizing intensity distributions.
-#            Instead of normalizing each probe individually, the algorithm divides probes into nbins groups based on their signal intensity.
-#            More bins = Finer-grained correction but slower computation.
-#            Fewer bins = More general correction, which may not capture subtle effects.
-# maxIt:     Maximum number of iterations
-#            Controls how many times the EM algorithm is allowed to run before stopping.
-#            If the algorithm has not converged after maxIt iterations, it forces an early stop.
-#            Higher values allow EM to run longer, improving accuracy.
-#            Lower values can speed up processing but may result in incomplete convergence.
-# asUPC:     Whether to return values as Universal exPression Codes (probabilistic indicators of expression).
-# numCores:  The number of CPU cores to use when processing the data.
-# verbose:   Whether to display verbose output when processing the data.
-scanNorm <- function(exprData,
-                     probeSequences,
-                     convThreshold=0.5,
-                     intervalN=10000,
-                     binsize=500,
-                     nbins=25,
-                     maxIt=100,
-                     asUPC=FALSE,
-                     numCores=1,
-                     verbose=FALSE) {
+scanNorm <- function(exprData, probeSequences, convThreshold, intervalN, binsize, nbins, maxIt, asUPC, numCores, verbose) {
   mx = buildDesignMatrix(probeSequences)
   
   numSamples <- ncol(exprData)

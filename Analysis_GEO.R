@@ -229,8 +229,6 @@ metrics <- calculateRelativeVariability(exprs(normalized), groups)
 # Calculate within- and between group consistency
 #metrics <- calculateReplicateScore(normalized, groups)
 
-#TODO: Calculate GC correlation across all genes
-
 ############################################################
 gseID <- "GSE43692"
 ############################################################
@@ -301,3 +299,12 @@ comparisonResults <- read_tsv(paramTuningOutFilePath) %>%
   mutate(Spike_Rank = rank(-`Spike-in concentration rho`)) %>%
   mutate(Combined_Rank = GC_Rank + Spike_Rank) %>%
   arrange(Combined_Rank)
+
+# TODO: Use the annotations to look for control probes when we do SCAN normalization. Is this status in the metadata?
+#      Then discard these probes after normalization?
+# TODO: Use arrayQualityMetrics to assess quality and add quality findings to the phenoData.
+#       https://github.com/ebi-gene-expression-group/microarray-import/blob/develop/bin/arrayQC.R
+# TODO: Work with Down Syndrome data from Process_Illumina_Microarray.R.
+# TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)
+#         Or at least make a note of it.
+# TODO: For the paper: "Given these observations and previous work for Affymetrix arrays, it would seem that more sophisticated methods than background normalisation are needed to account for sequence-specific hybridisation effects." (https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-85)

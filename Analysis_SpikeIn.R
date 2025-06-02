@@ -19,10 +19,9 @@ compute.gc <- function(probe.sequences, digits=2)
   round(sapply(splitted.seqs, function(x) length(grep("[GC]", x))) / listLen(splitted.seqs), digits=digits)
 }
 
-averageAcrossReplicates <- function(data, log2Transform = FALSE) {
+averageAcrossReplicates <- function(data) {
   data %>%
     pivot_longer(-ProbeID, names_to = "SampleID", values_to = "Value") %>%
-    mutate(Value = if (log2Transform) log2(Value) else Value) %>%
     inner_join(targetData, by = "SampleID") %>%
     group_by(ProbeID, SpikeConc) %>%
     dplyr::summarize(Value = mean(Value), .groups = "drop") %>%
@@ -312,7 +311,6 @@ testParamCombos1 <- function(paramCombos, paramTuningOutFilePath, numCores = 4) 
                                           vsnNormalize=(normalizationOption=="vsn"),
                                           quantileNormalize=(normalizationOption=="quantile"),
                                           scanNormalize=(scanOption=="SCAN"),
-                                          log2Transform=(scanOption!="SCAN"),
                                           numCores = numCores,
                                           verbose = TRUE)
 
@@ -528,14 +526,3 @@ ggplot(comparisonResults, aes(x = as.factor(controls), y = Combined_Rank)) +
   xlab("SCAN controls parameter") +
   ylab("Combined rank (lower is better)") +
   theme_bw(base_size = 14)
-
-# TODO: Modify the parameter options in IllumiSCAN.R.
-#   What to do about logTransform parameter?
-#   What to do about scanUseControls parameter? Keep it?
-# TODO: Use the annotations to look for control probes when we do SCAN normalization. Is this status in the metadata?
-#      Then discard these probes after normalization?
-# TODO: Use arrayQualityMetrics to assess quality and add quality findings to the phenoData.
-# TODO: Work with Down Syndrome data from Process_Illumina_Microarray.R.
-# TODO: Try VSN with "Normalization against an existing reference dataset"? (see docs for vsn package)
-#         Or at least make a note of it.
-# TODO: For the paper: "Given these observations and previous work for Affymetrix arrays, it would seem that more sophisticated methods than background normalisation are needed to account for sequence-specific hybridisation effects." (https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-85)
